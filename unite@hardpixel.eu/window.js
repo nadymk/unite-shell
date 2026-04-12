@@ -255,14 +255,6 @@ const MetaWindow = GObject.registerClass(
       }
     }
 
-    shade() {
-      if (this.win.is_shaded) {
-        this.win.shade(true)
-      } else {
-        this.win.unshade(true)
-      }
-    }
-
     lower() {
       this.win.lower()
     }

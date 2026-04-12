@@ -747,7 +747,6 @@ class TitlebarActions extends Handlers.Feature {
       'toggle-maximize':              'maximize',
       'toggle-maximize-horizontally': 'maximizeX',
       'toggle-maximize-vertically':   'maximizeY',
-      'toggle-shade':                 'shade',
       'minimize':                     'minimize',
       'lower':                        'lower'
     }
