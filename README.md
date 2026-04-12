@@ -33,8 +33,8 @@ Before installing the extension, make sure you have installed `xprop`.
 Then install the latest version using the commands below.
 
 ```bash
-wget https://github.com/hardpixel/unite-shell/releases/download/v82/unite-v82.zip
-gnome-extensions install --force unite-v82.zip
+wget https://github.com/hardpixel/unite-shell/releases/download/v85/unite-v85.zip
+gnome-extensions install --force unite-v85.zip
 ```
 
 To get notifications for new [releases](https://github.com/hardpixel/unite-shell/releases) you can watch this repository.
