@@ -43,6 +43,23 @@ export const AppmenuLabel = GObject.registerClass(
       const menu = new AppMenu(this)
       this.setMenu(menu)
 
+      // GNOME Shell 49+ opens PanelMenu buttons through a ClickGesture.  That
+      // gesture also claims clicks from descendant actors, which breaks the
+      // window-control buttons when they are embedded in this appmenu actor.
+      // Give only the icon and title their own menu gestures below, leaving
+      // the embedded controls outside every menu-opening gesture.
+      this._clickGesture?.set_enabled(false)
+
+      this._menuClickGestures = [this._iconBox, this._label].map(actor => {
+        const gesture = new Clutter.ClickGesture()
+        gesture.set_recognize_on_press(true)
+        gesture.connect('recognize', () => this.menu?.toggle())
+        actor.add_action(gesture)
+        actor.reactive = true
+
+        return gesture
+      })
+
       this._titleItem = new PopupMenu.PopupMenuItem('')
       this._titleItem.connect('activate', () => {
         const title = this._label.get_text()
@@ -138,6 +155,7 @@ export const AppmenuLabel = GObject.registerClass(
 
     setReactive(reactive) {
       this.reactive = reactive
+      this._menuClickGestures?.forEach(gesture => gesture.set_enabled(reactive))
     }
 
     setVisible(visible) {
@@ -313,6 +331,11 @@ export const WindowControls = GObject.registerClass(
   class UniteWindowControls extends PanelMenu.Button {
     _init() {
       super._init(0.0, null, true)
+
+      // This actor is only a panel-compatible wrapper around the real
+      // St.Button controls.  Its PanelMenu click gesture must not claim
+      // pointer sequences from those child buttons.
+      this._clickGesture?.set_enabled(false)
 
       this._controls = new St.BoxLayout({ style_class: 'window-controls-box' })
       this.add_child(this._controls)
