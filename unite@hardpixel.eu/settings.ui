@@ -119,6 +119,19 @@
         </child>
         <child>
           <object class="AdwActionRow">
+            <property name="title" translatable="yes">Combine with window buttons</property>
+            <property name="subtitle" translatable="yes">Group the app icon, window buttons, and adaptive title at the window buttons position</property>
+            <property name="activatable-widget">combine_window_buttons</property>
+            <child>
+              <object class="GtkSwitch" id="combine_window_buttons">
+                <property name="valign">center</property>
+                <property name="active">0</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="AdwActionRow">
             <property name="title" translatable="yes">App menu placement</property>
             <property name="subtitle" translatable="yes">Place the app menu next to the window controls</property>
             <property name="activatable-widget">app_menu_placement</property>
@@ -240,6 +253,26 @@
               <object class="GtkSwitch" id="use_activities_text">
                 <property name="valign">center</property>
                 <property name="active">1</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="AdwActionRow">
+            <property name="title" translatable="yes">Panel position</property>
+            <property name="subtitle" translatable="yes">Workspace switcher position in the top panel</property>
+            <property name="activatable-widget">workspace_switcher_placement</property>
+            <child>
+              <object class="GtkComboBoxText" id="workspace_switcher_placement">
+                <property name="valign">center</property>
+                <property name="width-request">130</property>
+                <property name="active-id">2</property>
+                <items>
+                  <item id="0" translatable="yes">First</item>
+                  <item id="1" translatable="yes">Left</item>
+                  <item id="2" translatable="yes">Right</item>
+                  <item id="3" translatable="yes">Last</item>
+                </items>
               </object>
             </child>
           </object>

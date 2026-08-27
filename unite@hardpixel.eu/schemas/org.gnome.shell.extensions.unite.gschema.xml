@@ -19,6 +19,13 @@
     <value value="2" nick="always" />
   </enum>
 
+  <enum id="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
+    <value value="0" nick="first" />
+    <value value="1" nick="left" />
+    <value value="2" nick="right" />
+    <value value="3" nick="last" />
+  </enum>
+
   <enum id="org.gnome.shell.extensions.unite.buttonsPlacement">
     <value value="0" nick="auto" />
     <value value="1" nick="left" />
@@ -65,6 +72,11 @@
       <summary>Show appmenu in top bar.</summary>
     </key>
 
+    <key name="combine-window-buttons" type="b">
+      <default>false</default>
+      <summary>Combine the app icon, window buttons, and title into one top bar item.</summary>
+    </key>
+
     <key name="app-menu-placement" enum="org.gnome.shell.extensions.unite.appMenuPlacement">
       <default>"auto"</default>
       <summary>Place the app menu before or after the window controls.</summary>
@@ -88,6 +100,11 @@
     <key name="use-activities-text" type="b">
       <default>true</default>
       <summary>Use text in activities button.</summary>
+    </key>
+
+    <key name="workspace-switcher-placement" enum="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
+      <default>"right"</default>
+      <summary>Workspace switcher position in the top bar.</summary>
     </key>
 
     <key name="show-desktop-name" type="b">

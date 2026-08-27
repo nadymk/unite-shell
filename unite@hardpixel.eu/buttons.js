@@ -2,8 +2,11 @@ import GObject from 'gi://GObject'
 import St from 'gi://St'
 import Clutter from 'gi://Clutter'
 import { AppMenu } from 'resource:///org/gnome/shell/ui/appMenu.js'
+import * as Dialog from 'resource:///org/gnome/shell/ui/dialog.js'
 import * as Main from 'resource:///org/gnome/shell/ui/main.js'
+import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js'
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js'
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js'
 import * as Animation from './animation.js'
 
 export const AppmenuLabel = GObject.registerClass(
@@ -40,6 +43,24 @@ export const AppmenuLabel = GObject.registerClass(
       const menu = new AppMenu(this)
       this.setMenu(menu)
 
+      this._titleItem = new PopupMenu.PopupMenuItem('')
+      this._titleItem.connect('activate', () => {
+        const title = this._label.get_text()
+
+        St.Clipboard.get_default().set_text(
+          St.ClipboardType.CLIPBOARD,
+          title
+        )
+        Main.notify(_('Copied to clipboard'), title)
+      })
+      menu.addMenuItem(this._titleItem, 0)
+
+      this._forceCloseItem = new PopupMenu.PopupMenuItem(_('Force Close'))
+      this._forceCloseItem.connect('activate', this._confirmForceClose.bind(this))
+
+      const quitIndex = menu._getMenuItems().indexOf(menu._quitItem)
+      menu.addMenuItem(this._forceCloseItem, quitIndex)
+
       this._menuManager = Main.panel.menuManager
       this._menuManager.addMenu(menu)
 
@@ -66,9 +87,53 @@ export const AppmenuLabel = GObject.registerClass(
       this._icon.set_gicon(icon)
     }
 
+    _confirmForceClose() {
+      const target = global.unite.panelWindow
+
+      if (!target || this._forceCloseDialog) {
+        return
+      }
+
+      const appName = target.app?.get_name() || target.title
+      const dialog = new ModalDialog.ModalDialog({ styleClass: 'prompt-dialog' })
+      const content = new Dialog.MessageDialogContent({
+        title: _('Force Close “%s”?').format(appName),
+        description: _('The application will close immediately. Any unsaved work will be lost.'),
+      })
+
+      dialog.contentLayout.add_child(content)
+      dialog.setButtons([{
+        label: _('Cancel'),
+        action: () => dialog.close(),
+        key: Clutter.KEY_Escape,
+        default: true,
+      }, {
+        label: _('Force Close'),
+        action: () => {
+          dialog.close()
+          target.win.kill()
+        },
+      }])
+
+      dialog.connect('closed', () => {
+        if (this._forceCloseDialog === dialog) {
+          this._forceCloseDialog = null
+        }
+      })
+      target.win.connectObject('unmanaged', () => dialog.close(), dialog)
+
+      this._forceCloseDialog = dialog
+
+      if (!dialog.open()) {
+        this._forceCloseDialog = null
+        dialog.destroy()
+      }
+    }
+
     setText(text) {
       this._label.set_text(text)
-      this.syncPlacement?.()
+      this._titleItem?.label.set_text(text)
+      this.syncLayout?.()
     }
 
     setReactive(reactive) {
@@ -85,6 +150,28 @@ export const AppmenuLabel = GObject.registerClass(
     toggleIcon(hidden) {
       this._hiddenIcon = hidden
       this._syncVisibility()
+    }
+
+    setWindowControls(controls) {
+      if (this._windowControls === controls) {
+        return
+      }
+
+      this.removeWindowControls()
+
+      if (controls) {
+        controls.get_parent()?.remove_child(controls)
+        this._container.insert_child_below(controls, this._label)
+        this._windowControls = controls
+      }
+    }
+
+    removeWindowControls() {
+      if (this._windowControls?.get_parent() === this._container) {
+        this._container.remove_child(this._windowControls)
+      }
+
+      this._windowControls = null
     }
 
     setCompact(compact) {
@@ -129,6 +216,9 @@ export const AppmenuLabel = GObject.registerClass(
     }
 
     _onDestroy() {
+      this._forceCloseDialog?.close()
+      this._forceCloseDialog = null
+
       if (this.menu) {
         this._menuManager.removeMenu(this.menu)
         this._menuManager = null
@@ -266,7 +356,7 @@ export const WindowControls = GObject.registerClass(
       btn.set_child(bin)
 
       btn.connect('clicked', () => {
-        const target = global.unite.focusWindow
+        const target = global.unite.panelWindow
         const method = target && target[action]
 
         method && method.call(target)

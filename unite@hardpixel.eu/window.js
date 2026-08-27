@@ -3,6 +3,7 @@ import Shell from 'gi://Shell'
 import Meta from 'gi://Meta'
 import * as Main from 'resource:///org/gnome/shell/ui/main.js'
 import * as Util from 'resource:///org/gnome/shell/misc/util.js'
+import { WindowPreview } from 'resource:///org/gnome/shell/ui/windowPreview.js'
 import * as Handlers from './handlers.js'
 
 const VALID_TYPES = [
@@ -112,6 +113,22 @@ const MetaWindow = GObject.registerClass(
         win, 'notify::title', this._onTitleChanged.bind(this)
       )
 
+      this.signals.connect(
+        win, 'notify::skip-taskbar', this._onEligibilityChanged.bind(this)
+      )
+
+      this.signals.connect(
+        win, 'notify::window-type', this._onEligibilityChanged.bind(this)
+      )
+
+      this.signals.connect(
+        win, 'notify::minimized', this._onPanelEligibilityChanged.bind(this)
+      )
+
+      this.signals.connect(
+        win, 'workspace-changed', this._onPanelEligibilityChanged.bind(this)
+      )
+
       this.settings.connect(
         'restrict-to-primary-screen', this.syncComponents.bind(this)
       )
@@ -137,6 +154,10 @@ const MetaWindow = GObject.registerClass(
 
     get hasFocus() {
       return this.win.has_focus()
+    }
+
+    get isPanelTarget() {
+      return global.unite?.panelWindow === this
     }
 
     get title() {
@@ -273,12 +294,11 @@ const MetaWindow = GObject.registerClass(
     }
 
     syncControls() {
-      if (this.hasFocus) {
-        const overview = Main.overview.visibleTarget
+      if (this.isPanelTarget) {
         const controls = Main.panel.statusArea.uniteWindowControls
 
         controls && controls.setVisible(
-          !overview && !this.skipTaskbar && this.showButtons
+          !this.skipTaskbar && this.showButtons
         )
       }
     }
@@ -286,7 +306,8 @@ const MetaWindow = GObject.registerClass(
     syncAppmenu() {
       const appmenu = Main.panel.statusArea.uniteAppMenu
 
-      if (appmenu && this.hasFocus && this.title) {
+      if (appmenu && this.isPanelTarget && isValid(this.win) &&
+          !this.skipTaskbar && this.title) {
         const title = this.title.replace(/\r?\n|\r/g, ' ')
         appmenu.setText(title)
       }
@@ -316,6 +337,18 @@ const MetaWindow = GObject.registerClass(
       this.syncAppmenu()
     }
 
+    _onEligibilityChanged() {
+      global.unite.windowManager.queuePanelStateChanged()
+
+      if (isValid(this.win) && !this.skipTaskbar) {
+        this.syncComponents()
+      }
+    }
+
+    _onPanelEligibilityChanged() {
+      global.unite.windowManager.queuePanelStateChanged()
+    }
+
     destroy(reset = true) {
       reset && this.decorations.reset()
 
@@ -335,9 +368,14 @@ export const WindowManager = GObject.registerClass(
       this.settings = new Handlers.Settings()
       this.timeouts = new Handlers.Timeouts()
       this.styles   = new Handlers.Styles()
+      this.injections = new Handlers.Injections()
 
-      this._focusWindow  = null
-      this._startingApps = []
+      this._focusWindow = null
+      this._overviewWindow = null
+      this._overviewActive = false
+      this._panelStateTimeout = null
+      this._panelStateListeners = new Set()
+      this._overviewPreviews = new Map()
 
       this.signals.connect(
         global.display, 'window-created', this._onWindowCreated.bind(this)
@@ -359,6 +397,27 @@ export const WindowManager = GObject.registerClass(
         AppSystem, 'app-state-changed', this._onAppStateChanged.bind(this)
       )
 
+      this.signals.connect(
+        WinTracker, 'notify::focus-app', this.queuePanelStateChanged.bind(this)
+      )
+
+      this.signals.connect(
+        Main.overview, 'showing', this._onOverviewShowing.bind(this)
+      )
+
+      this.signals.connect(
+        Main.overview, 'hiding', this._onOverviewHiding.bind(this)
+      )
+
+      this.signals.connect(
+        global.stage, 'notify::key-focus', this._onKeyFocusChanged.bind(this)
+      )
+
+      this.signals.connect(
+        global.workspace_manager, 'active-workspace-changed',
+        this._onWorkspaceChanged.bind(this)
+      )
+
       this.settings.connect(
         'hide-window-titlebars', this._onStylesChange.bind(this)
       )
@@ -369,15 +428,36 @@ export const WindowManager = GObject.registerClass(
     }
 
     get focusApp() {
-      const focusApps = [WinTracker.focus_app].concat(this._startingApps)
+      const app = this.focusWindow?.app
       const workspace = global.workspace_manager.get_active_workspace()
 
-      return focusApps.find(app => app && app.is_on_workspace(workspace))
+      return app?.is_on_workspace(workspace) ? app : null
+    }
+
+    get panelApp() {
+      const app = this.panelWindow?.app
+      const workspace = global.workspace_manager.get_active_workspace()
+
+      return app?.is_on_workspace(workspace) ? app : null
+    }
+
+    get panelWindow() {
+      return this._overviewActive ? this._overviewWindow : this.focusWindow
     }
 
     get focusWindow() {
       if (this._focusWindow) {
-        return this.getWindow(this._focusWindow)
+        const meta = this.getWindow(this._focusWindow)
+        const workspace = global.workspace_manager.get_active_workspace()
+
+        // Some desktop implementations create a normal window first, then
+        // turn it into a DESKTOP/skip-taskbar window. Do not trust the type it
+        // had when it was registered.
+        if (meta && meta.hasFocus && !meta.minimized &&
+            meta.win.located_on_workspace(workspace) &&
+            isValid(meta.win) && !meta.skipTaskbar) {
+          return meta
+        }
       }
     }
 
@@ -407,6 +487,12 @@ export const WindowManager = GObject.registerClass(
     deleteWindow(win, reset = true) {
       if (this.hasWindow(win)) {
         const meta = this.getWindow(win)
+
+        if (this._overviewWindow === meta) {
+          this._overviewWindow = null
+          this.queuePanelStateChanged()
+        }
+
         meta.destroy(reset)
 
         this.windows.delete(getId(win))
@@ -446,17 +532,117 @@ export const WindowManager = GObject.registerClass(
     _onFocusWindow(display) {
       this._focusWindow = display.focus_window
 
-      if (this.focusWindow) {
-        this.focusWindow.syncComponents()
+      if (!this._overviewActive) {
+        this.queuePanelStateChanged()
       }
     }
 
-    _onAppStateChanged(appSys, app) {
-      if (app.state == Shell.AppState.STARTING) {
-        this._startingApps.push(app)
-      } else {
-        this._startingApps = this._startingApps.filter(item => item !== app)
+    _onWorkspaceChanged() {
+      this._focusWindow = global.display.focus_window
+
+      if (!this._overviewActive) {
+        this.queuePanelStateChanged()
       }
+    }
+
+    _onOverviewShowing() {
+      this._overviewActive = true
+      this._overviewWindow = this.focusWindow
+      this.queuePanelStateChanged()
+    }
+
+    _onOverviewHiding() {
+      this._overviewActive = false
+      this._overviewWindow = null
+      this.queuePanelStateChanged()
+    }
+
+    _watchOverviewPreview(preview) {
+      if (this._overviewPreviews.has(preview)) {
+        return
+      }
+
+      const hoverId = preview.connect('notify::hover', () => {
+        if (preview.hover) {
+          this.setOverviewWindow(preview.metaWindow)
+        }
+      })
+      const focusId = preview.connect('key-focus-in', () => {
+        this.setOverviewWindow(preview.metaWindow)
+      })
+      const destroyId = preview.connect('destroy', () => {
+        this._overviewPreviews.delete(preview)
+      })
+
+      this._overviewPreviews.set(preview, [hoverId, focusId, destroyId])
+    }
+
+    _onKeyFocusChanged() {
+      if (!this._overviewActive) {
+        return
+      }
+
+      const focus = global.stage.get_key_focus()
+      const preview = [...this._overviewPreviews.keys()].find(actor => {
+        return focus && (actor === focus || actor.contains(focus))
+      })
+
+      if (preview) {
+        this.setOverviewWindow(preview.metaWindow)
+      }
+    }
+
+    setOverviewWindow(win) {
+      if (!this._overviewActive || !win) {
+        return
+      }
+
+      if (!this.hasWindow(win)) {
+        this.registerWindow(win)
+      }
+
+      const target = this.getWindow(win)
+
+      if (target && !target.skipTaskbar && this._overviewWindow !== target) {
+        this._overviewWindow = target
+        this.queuePanelStateChanged()
+      }
+    }
+
+    addPanelStateListener(callback) {
+      this._panelStateListeners.add(callback)
+      return callback
+    }
+
+    removePanelStateListener(callback) {
+      this._panelStateListeners.delete(callback)
+    }
+
+    _onAppStateChanged(appSys, app) {
+      this.queuePanelStateChanged()
+    }
+
+    queuePanelStateChanged() {
+      if (this._panelStateTimeout) {
+        return
+      }
+
+      this._panelStateTimeout = this.timeouts.idle(() => {
+        this._panelStateTimeout = null
+
+        for (const callback of this._panelStateListeners) {
+          try {
+            callback()
+          } catch (error) {
+            console.error('[Unite] Failed to update a panel component', error)
+          }
+        }
+
+        // Appmenu state sets the application name first. Apply the selected
+        // window's title afterwards so the panel consistently represents the
+        // same target in both the desktop and overview.
+        this.panelWindow?.syncComponents()
+      })
     }
 
     _onAttention(actor, win) {
@@ -478,6 +664,15 @@ export const WindowManager = GObject.registerClass(
     }
 
     activate() {
+      const manager = this
+
+      this.injections.wrap(WindowPreview, '_init', originalMethod => {
+        return function(...args) {
+          originalMethod.call(this, ...args)
+          manager._watchOverviewPreview(this)
+        }
+      })
+
       this.timeouts.idle(() => {
         const actors = global.get_window_actors()
         actors.forEach(actor => this.registerActor(actor))
@@ -488,13 +683,23 @@ export const WindowManager = GObject.registerClass(
     }
 
     destroy() {
-      this._focusWindow  = null
-      this._startingApps = []
+      this._focusWindow = null
+      this._overviewWindow = null
+      this._overviewActive = false
+      this._panelStateTimeout = null
 
       this.timeouts.removeAll()
       this.signals.disconnectAll()
       this.settings.disconnectAll()
       this.styles.removeAll()
+      this.injections.removeAll()
+
+      for (const [preview, ids] of this._overviewPreviews) {
+        ids.forEach(id => preview.disconnect(id))
+      }
+
+      this._overviewPreviews.clear()
+      this._panelStateListeners.clear()
 
       this.clearWindows()
     }

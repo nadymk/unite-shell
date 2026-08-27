@@ -174,6 +174,13 @@ export class Injections {
     return this.registerInjection(method, [proto, method])
   }
 
+  wrap(object, method, callback) {
+    const proto = object.prototype
+    this.items.overrideMethod(proto, method, original => callback(original))
+
+    return this.registerInjection(method, [proto, method])
+  }
+
   vfunc(object, method, callback) {
     const proto = Object.getPrototypeOf(object)
     const vfunc = `vfunc_${method}`
@@ -211,34 +218,46 @@ export class Timeouts {
     return key
   }
 
+  forget(sourceId) {
+    for (const [key, registeredId] of this.store) {
+      if (registeredId === sourceId) {
+        this.store.delete(key)
+        break
+      }
+    }
+  }
+
   idle(callback) {
-    return this.register(
-      GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-        callback.call(null)
-        return GLib.SOURCE_REMOVE
-      })
-    )
+    const sourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+      this.forget(sourceId)
+      callback.call(null)
+      return GLib.SOURCE_REMOVE
+    })
+
+    return this.register(sourceId)
   }
 
   timeout(time, callback) {
-    return this.register(
-      GLib.timeout_add(GLib.PRIORITY_DEFAULT, time, () => {
-        callback.call(null)
-        return GLib.SOURCE_REMOVE
-      })
-    )
+    const sourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, time, () => {
+      this.forget(sourceId)
+      callback.call(null)
+      return GLib.SOURCE_REMOVE
+    })
+
+    return this.register(sourceId)
   }
 
   interval(time, callback) {
-    return this.register(
-      GLib.timeout_add(GLib.PRIORITY_DEFAULT, time, () => {
-        if (callback.call(null) === false) {
-          return GLib.SOURCE_REMOVE
-        } else {
-          return GLib.SOURCE_CONTINUE
-        }
-      })
-    )
+    const sourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, time, () => {
+      if (callback.call(null) === false) {
+        this.forget(sourceId)
+        return GLib.SOURCE_REMOVE
+      } else {
+        return GLib.SOURCE_CONTINUE
+      }
+    })
+
+    return this.register(sourceId)
   }
 
   remove(key) {
@@ -315,7 +334,7 @@ export class Features {
   }
 
   destroy() {
-    this.features.forEach(feature => feature._doDestroy())
+    this.features.slice().reverse().forEach(feature => feature._doDestroy())
     this.settings.disconnectAll()
   }
 }

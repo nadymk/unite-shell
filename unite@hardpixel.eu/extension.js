@@ -41,4 +41,12 @@ export default class UniteExtension extends Extension {
   get focusWindow() {
     return this.windowManager.focusWindow
   }
+
+  get panelApp() {
+    return this.windowManager.panelApp
+  }
+
+  get panelWindow() {
+    return this.windowManager.panelWindow
+  }
 }

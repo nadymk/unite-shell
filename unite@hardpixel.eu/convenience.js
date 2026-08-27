@@ -27,8 +27,10 @@ export const SettingsManager = GObject.registerClass(
       return {
         'autofocus-windows':          'boolean',
         'hide-activities-button':     'enum',
+        'workspace-switcher-placement': 'enum',
         'show-window-title':          'enum',
         'show-appmenu-button':        'boolean',
+        'combine-window-buttons':     'boolean',
         'app-menu-placement':         'enum',
         'compact-app-menu-button':    'boolean',
         'compact-app-menu-hover-delay': 'int',
