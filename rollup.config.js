@@ -55,7 +55,8 @@ export default {
     copy({
       hook: 'generateBundle',
       targets: [
-        { src: 'unite@hardpixel.eu/*', dest: 'dist' }
+        { src: 'unite@hardpixel.eu/*', dest: 'dist' },
+        { src: ['LICENSE', 'NOTICE.md'], dest: 'dist' }
       ]
     }),
     process.env.package && zip({

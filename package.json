@@ -2,8 +2,12 @@
   "name": "unite",
   "version": "85",
   "description": "Unite is an extension that makes GNOME Shell look like Ubuntu Unity Shell",
-  "repository": "https://github.com/hardpixel/unite-shell",
-  "author": "Jonian Guveli",
+  "repository": "https://github.com/nadymk/unite-shell",
+  "author": "nadymk",
+  "contributors": [
+    "Jonian Guveli",
+    "Unite Shell contributors"
+  ],
   "license": "GPL",
   "type": "module",
   "private": true,

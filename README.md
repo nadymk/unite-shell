@@ -1,4 +1,8 @@
 # Unite Shell
+
+> [!NOTE]
+> This repository is a maintained fork of the original [Unite Shell](https://github.com/hardpixel/unite-shell) project, developed by Jonian Guveli and its contributors. This fork is maintained by [nadymk](https://github.com/nadymk) and contains modifications from 27 August 2026 onward.
+
 Unite is a GNOME Shell extension which makes a few layout tweaks to the top panel and removes window decorations to make it look like Ubuntu Unity Shell.
 
 * Adds window buttons to the top panel for maximized windows.
@@ -14,11 +18,11 @@ Unite is a GNOME Shell extension which makes a few layout tweaks to the top pane
 ### Screenshots
 Unite running with the default options.
 
-![Screenshot](https://raw.githubusercontent.com/hardpixel/unite-shell/master/screenshot.png)
+![Screenshot](https://raw.githubusercontent.com/nadymk/unite-shell/master/screenshot.png)
 
 Settings window available in gnome extensions application.
 
-![Settings](https://raw.githubusercontent.com/hardpixel/unite-shell/master/settings.png)
+![Settings](https://raw.githubusercontent.com/nadymk/unite-shell/master/settings.png)
 
 ## Installation
 Before installing the extension, make sure you have installed `xprop`.
@@ -30,28 +34,32 @@ Before installing the extension, make sure you have installed `xprop`.
 | Fedora Silverblue |xprop | `rpm-ostree install xprop` |
 | Arch Linux, Manjaro, EndeavourOS |xorg-xprop | `pacman -S xorg-xprop` |
 
-Then install the latest version using the commands below.
+Fork releases will be published on the [releases page](https://github.com/nadymk/unite-shell/releases). Until the first fork release is available, build and install the current version from source:
 
 ```bash
-wget https://github.com/hardpixel/unite-shell/releases/download/v85/unite-v85.zip
-gnome-extensions install --force unite-v85.zip
+git clone https://github.com/nadymk/unite-shell.git
+cd unite-shell
+corepack enable
+yarn install
+yarn package
+gnome-extensions install --force build/unite-v85.zip
 ```
 
-To get notifications for new [releases](https://github.com/hardpixel/unite-shell/releases) you can watch this repository.
+To get notifications for new releases, you can watch this repository.
 
 For the complete Ubuntu Unity layout, you can combine it with [Dash to Dock](https://github.com/micheleg/dash-to-dock) extension and [Gnome HUD](https://github.com/hardpixel/gnome-hud) menu.
 
 ### Gnome Shell Extensions
-For Gnome versions up to 44 you can install the extension from the official extensions resource page [here](https://extensions.gnome.org/extension/1287/unite).
+For Gnome versions up to 44, the original extension is available from the official extensions resource page [here](https://extensions.gnome.org/extension/1287/unite). This page distributes the upstream project, not this fork.
 
 ### Packages
 Arch Linux: [AUR package](https://aur.archlinux.org/packages/gnome-shell-extension-unite)
 
 ## Contributing
-Bug reports and pull requests are welcome on GitHub at https://github.com/hardpixel/unite-shell.
+Bug reports and pull requests are welcome on GitHub at https://github.com/nadymk/unite-shell.
 
 ## License
-Unite Shell is available as open source under the terms of the [GPLv3](http://www.gnu.org/licenses/gpl-3.0.en.html)
+Unite Shell is available as open source under the terms of the [GPLv3](https://www.gnu.org/licenses/gpl-3.0.en.html). See [NOTICE.md](NOTICE.md) for fork and upstream attribution.
 
 ## Credits
-This extension is inspired from [Pixel Saver](https://github.com/deadalnix/pixel-saver), [TopIcons Plus](https://github.com/phocean/TopIcons-plus), [Extend Left Box](https://github.com/StephenPCG/extend-left-box).
+This fork is based on [Unite Shell](https://github.com/hardpixel/unite-shell), developed by Jonian Guveli and its contributors. The original extension was inspired by [Pixel Saver](https://github.com/deadalnix/pixel-saver), [TopIcons Plus](https://github.com/phocean/TopIcons-plus), and [Extend Left Box](https://github.com/StephenPCG/extend-left-box).
