@@ -26,6 +26,17 @@ class AppmenuButton extends Handlers.Feature {
     this.button   = new Buttons.AppmenuLabel()
     this.tooltip  = new St.Label({ visible: false, style_class: 'dash-label' })
     this.focused  = null
+    this._hoverExpandTimeout = null
+    this._tooltipTimeout = null
+    this._placeholder = new St.Bin({
+      opacity: 0,
+      reactive: false,
+      can_focus: false,
+    })
+    this._previewing = false
+    this._overlayParent = null
+    this._overlayIndex = -1
+    this._overlaySize = [0, 0]
 
     this.signals.connect(
       Main.overview, 'showing', this._syncState.bind(this)
@@ -43,6 +54,10 @@ class AppmenuButton extends Handlers.Feature {
       WinTracker, 'notify::focus-app', this._onFocusAppChanged.bind(this)
     )
 
+    this.signals.connect(
+      Main.panel._leftBox, 'notify::allocation', this._syncLayout.bind(this)
+    )
+
     this.settings.connect(
       'hide-app-menu-icon', this._onHideIconChange.bind(this)
     )
@@ -55,6 +70,26 @@ class AppmenuButton extends Handlers.Feature {
       'app-menu-ellipsize-mode', this._onEllipsizeModeChange.bind(this)
     )
 
+    this.settings.connect(
+      'app-menu-placement', this._onPositionChange.bind(this)
+    )
+
+    this.settings.connect(
+      'window-buttons-placement', this._onPositionChange.bind(this)
+    )
+
+    this.settings.connect(
+      'compact-app-menu-button', this._onCompactModeChange.bind(this)
+    )
+
+    this.settings.connect(
+      'compact-app-menu-hover-delay', this._onCompactModeChange.bind(this)
+    )
+
+    this.settings.connect(
+      'compact-app-menu-threshold', this._onCompactModeChange.bind(this)
+    )
+
     this.button.connect(
       'notify::hover', this._onAppMenuHover.bind(this)
     )
@@ -62,6 +97,8 @@ class AppmenuButton extends Handlers.Feature {
     this.button.connect(
       'button-press-event', this._onAppMenuClicked.bind(this)
     )
+
+    this.button.syncPlacement = this._syncPlacement.bind(this)
 
     Main.uiGroup.add_child(this.tooltip)
 
@@ -71,6 +108,7 @@ class AppmenuButton extends Handlers.Feature {
 
     this._onHideIconChange()
     this._onMaxWidthChange()
+    this._syncPlacement()
 
     this._syncState()
   }
@@ -85,6 +123,22 @@ class AppmenuButton extends Handlers.Feature {
 
   get ellipsizeMode() {
     return this.settings.get('app-menu-ellipsize-mode')
+  }
+
+  get placement() {
+    return this.settings.get('app-menu-placement')
+  }
+
+  get compactMode() {
+    return this.settings.get('compact-app-menu-button')
+  }
+
+  get compactHoverDelay() {
+    return Math.max(0, this.settings.get('compact-app-menu-hover-delay'))
+  }
+
+  get compactThreshold() {
+    return Math.max(0, this.settings.get('compact-app-menu-threshold'))
   }
 
   setLabelMaxWidth(width) {
@@ -129,14 +183,37 @@ class AppmenuButton extends Handlers.Feature {
 
     this.button.setReactive(visible && !loading)
     this.button.setVisible(visible)
+    this._syncCompactMode()
   }
 
   _onAppMenuHover(appMenu) {
-    if (!appMenu.get_hover() || !this.maxWidth) {
+    if (!appMenu.get_hover()) {
+      this._cancelHoverExpand()
+      this._cancelTooltip()
+      this._hidePreview()
       return this.tooltip.hide()
     }
 
-    this.timeouts.timeout(400, () => {
+    if (this.compactMode && !this._fitsFullWidth()) {
+      this._cancelHoverExpand()
+      this._hoverExpandTimeout = this.timeouts.timeout(this.compactHoverDelay, () => {
+        this._hoverExpandTimeout = null
+
+        if (appMenu.get_hover()) {
+          this._showPreview()
+        }
+      })
+    }
+
+    if (!this.maxWidth || (this.compactMode && !this._fitsFullWidth())) {
+      this._cancelTooltip()
+      return this.tooltip.hide()
+    }
+
+    this._cancelTooltip()
+    this._tooltipTimeout = this.timeouts.timeout(400, () => {
+      this._tooltipTimeout = null
+
       if (appMenu.get_hover() && !this.tooltip.visible) {
         const [mouseX, mouseY] = global.get_pointer()
 
@@ -164,12 +241,217 @@ class AppmenuButton extends Handlers.Feature {
     this.setTextEllipsizeMode(this.ellipsizeMode)
   }
 
+  _onCompactModeChange() {
+    this._cancelHoverExpand()
+    this._cancelTooltip()
+    this._hidePreview()
+    this._syncCompactMode()
+  }
+
+  _onPositionChange() {
+    const container = this.button
+    const leftBox = Main.panel._leftBox
+    const controls = Main.panel.statusArea.uniteWindowControls?.container
+
+    if (container.get_parent() !== leftBox) {
+      return
+    }
+
+    if (!controls || controls.get_parent() !== leftBox || this.placement == 'auto') {
+      leftBox.set_child_at_index(container, 1)
+      return
+    }
+
+    const children = leftBox.get_children()
+    const controlsIndex = children.indexOf(controls)
+
+    if (controlsIndex < 0) {
+      leftBox.set_child_at_index(container, 1)
+      return
+    }
+
+    const index = this.placement == 'before' ? controlsIndex : controlsIndex + 1
+    leftBox.set_child_at_index(container, index)
+  }
+
+  _syncPlacement() {
+    this._onPositionChange()
+    this._syncCompactMode()
+    this._syncPreviewPosition()
+  }
+
+  _syncLayout() {
+    this._syncCompactMode()
+    this._syncPreviewPosition()
+  }
+
+  _cancelHoverExpand() {
+    if (this._hoverExpandTimeout) {
+      this.timeouts.remove(this._hoverExpandTimeout)
+      this._hoverExpandTimeout = null
+    }
+  }
+
+  _cancelTooltip() {
+    if (this._tooltipTimeout) {
+      this.timeouts.remove(this._tooltipTimeout)
+      this._tooltipTimeout = null
+    }
+  }
+
+  _fitsFullWidth() {
+    const container = this.button
+    const leftBox = Main.panel._leftBox
+
+    if (container.get_parent() !== leftBox) {
+      return true
+    }
+
+    if (leftBox.get_width() <= 0) {
+      return true
+    }
+
+    const available = this._availableLeftBoxWidth()
+    if (available <= 0) {
+      return false
+    }
+
+    return this.button.measureFullWidth() + this.compactThreshold <= available
+  }
+
+  _availableLeftBoxWidth() {
+    const leftBox = Main.panel._leftBox
+    const container = this.button
+
+    return leftBox.get_width() - leftBox.get_children().reduce((width, child) => {
+      return child == container ? width : width + child.get_width()
+    }, 0)
+  }
+
+  _syncCompactMode() {
+    const actor = this.button
+
+    if (!actor.container.visible || !this.compactMode || this._previewing) {
+      this.button.setCompact(false)
+      return
+    }
+
+    const compact = !this._fitsFullWidth()
+    this.button.setCompact(compact)
+
+    if (!compact) {
+      this._hidePreview()
+    }
+  }
+
+  _showPreview() {
+    const actor = this.button
+
+    if (this._previewing || !actor.container.visible || !this.compactMode || this._fitsFullWidth()) {
+      return
+    }
+
+    if (!this.focused) {
+      return
+    }
+
+    const parent = actor.get_parent()
+    if (!parent) {
+      return
+    }
+
+    const children = parent.get_children()
+    const index = children.indexOf(actor)
+    const [stageX, stageY] = actor.get_transformed_position()
+    const compactWidth = Math.ceil(actor.get_width())
+    const compactHeight = Math.ceil(actor.get_height() || Main.panel.height)
+    const fullWidth = Math.ceil(Math.max(
+      compactWidth,
+      this.button.measureFullWidth() + this.compactThreshold,
+    ))
+
+    this._overlayParent = parent
+    this._overlayIndex = index
+    this._overlaySize = [compactWidth, compactHeight]
+    this._placeholder.set_size(compactWidth, compactHeight)
+
+    parent.insert_child_at_index(this._placeholder, index)
+    parent.remove_child(actor)
+    Main.uiGroup.add_child(actor)
+
+    this.button.setCompact(false)
+    actor.set_position(stageX, stageY)
+    actor.set_size(compactWidth, compactHeight)
+    actor.raise_top()
+    actor.remove_all_transitions()
+    actor.ease({
+      width: fullWidth,
+      duration: 180,
+      mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+    })
+
+    this._previewing = true
+  }
+
+  _hidePreview() {
+    if (!this._previewing) {
+      return
+    }
+
+    const actor = this.button
+    const [compactWidth, compactHeight] = this._overlaySize
+
+    actor.remove_all_transitions()
+    actor.ease({
+      width: compactWidth,
+      duration: 120,
+      mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+      onComplete: () => {
+        if (!this._previewing) {
+          return
+        }
+
+        const parent = this._overlayParent
+        const index = this._overlayIndex
+
+        if (actor.get_parent()) {
+          actor.get_parent().remove_child(actor)
+        }
+
+        parent?.remove_child(this._placeholder)
+
+        if (parent) {
+          parent.insert_child_at_index(actor, index)
+        }
+
+        this.button.setCompact(this.compactMode && !this._fitsFullWidth())
+        this._overlayParent = null
+        this._overlayIndex = -1
+        this._previewing = false
+        this._syncPlacement()
+      },
+    })
+  }
+
+  _syncPreviewPosition() {
+    if (this._previewing) {
+      const actor = this.button
+      const [stageX, stageY] = this._placeholder.get_transformed_position()
+      actor.set_position(stageX, stageY)
+    }
+  }
+
   destroy() {
+    this._cancelHoverExpand()
+    this._cancelTooltip()
+    this._previewing = false
+    this._placeholder.get_parent()?.remove_child(this._placeholder)
     this.timeouts.removeAll()
     this.signals.disconnectAll()
     this.settings.disconnectAll()
 
     this.button.destroy()
+    this._placeholder.destroy()
     this.tooltip.destroy()
   }
 }
@@ -231,6 +513,7 @@ class WindowButtons extends Handlers.Feature {
     this._onPositionChange()
     this._onThemeChange()
     this._syncVisible()
+    Main.panel.statusArea.uniteAppMenu?.syncPlacement?.()
   }
 
   get gtkTheme() {
@@ -309,6 +592,7 @@ class WindowButtons extends Handlers.Feature {
       this.container.set_child_below_sibling(controls, this.sibling.get_parent())
     }
 
+    Main.panel.statusArea.uniteAppMenu?.syncPlacement?.()
     this._onLayoutChange()
   }
 
@@ -360,6 +644,8 @@ class WindowButtons extends Handlers.Feature {
     } else {
       this.controls.setVisible(false)
     }
+
+    Main.panel.statusArea.uniteAppMenu?.syncPlacement?.()
   }
 
   _updateIconScaleWorkaround(forceLayoutChange = false) {
@@ -522,6 +808,8 @@ class ActivitiesButton extends Handlers.Feature {
     } else {
       button.visible = overview || focusApp == null
     }
+
+    Main.panel.statusArea.uniteAppMenu?.syncPlacement?.()
   }
 
   destroy() {
@@ -607,6 +895,7 @@ class DesktopName extends Handlers.Feature {
     const focusApp = global.unite.focusApp
 
     this.label.setVisible(!overview && focusApp == null)
+    Main.panel.statusArea.uniteAppMenu?.syncPlacement?.()
   }
 
   _onTextChanged() {

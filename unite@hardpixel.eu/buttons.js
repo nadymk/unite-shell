@@ -33,6 +33,9 @@ export const AppmenuLabel = GObject.registerClass(
 
       this._spinner = new Animation.Spinner(14, { animate: true, hideOnStop: true })
       this._container.add_child(this._spinner)
+      this._hiddenIcon = false
+      this._compact = false
+      this._loading = false
 
       const menu = new AppMenu(this)
       this.setMenu(menu)
@@ -50,6 +53,7 @@ export const AppmenuLabel = GObject.registerClass(
 
       this.setText(text || '')
       this.add_style_class_name('app-menu-label')
+      this._syncVisibility()
     }
 
     setApp(app) {
@@ -64,6 +68,7 @@ export const AppmenuLabel = GObject.registerClass(
 
     setText(text) {
       this._label.set_text(text)
+      this.syncPlacement?.()
     }
 
     setReactive(reactive) {
@@ -78,15 +83,49 @@ export const AppmenuLabel = GObject.registerClass(
     }
 
     toggleIcon(hidden) {
-      this._iconBox.visible = !hidden
+      this._hiddenIcon = hidden
+      this._syncVisibility()
+    }
+
+    setCompact(compact) {
+      this._compact = compact
+      this._syncVisibility()
+    }
+
+    measureFullWidth() {
+      const iconVisible = this._iconBox.visible
+      const labelVisible = this._label.visible
+      const spinnerVisible = this._spinner.visible
+
+      this._iconBox.visible = true
+      this._label.visible = true
+      this._spinner.visible = this._loading
+
+      const width = this._container.get_preferred_width(-1)[1]
+
+      this._iconBox.visible = iconVisible
+      this._label.visible = labelVisible
+      this._spinner.visible = spinnerVisible
+
+      return width
+    }
+
+    _syncVisibility() {
+      this._iconBox.visible = !this._hiddenIcon || this._compact
+      this._label.visible = !this._compact
+      this._spinner.visible = !this._compact && this._loading
     }
 
     stopAnimation() {
+      this._loading = false
       this._spinner.stop()
+      this._syncVisibility()
     }
 
     startAnimation() {
+      this._loading = true
       this._spinner.play()
+      this._syncVisibility()
     }
 
     _onDestroy() {
