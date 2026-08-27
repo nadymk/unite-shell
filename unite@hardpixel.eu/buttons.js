@@ -81,13 +81,9 @@ export const AppmenuLabel = GObject.registerClass(
       this._menuManager = Main.panel.menuManager
       this._menuManager.addMenu(menu)
 
-      const iconEffect = new Clutter.DesaturateEffect()
-      this._iconBox.add_effect(iconEffect)
-
-      this._iconBox.connect('style-changed', () => {
-        const themeNode = this._iconBox.get_theme_node()
-        iconEffect.enabled = themeNode.get_icon_style() === St.IconStyle.SYMBOLIC
-      })
+      this._iconEffect = new Clutter.DesaturateEffect({ factor: 1.0 })
+      this._iconEffect.enabled = false
+      this._iconBox.add_effect(this._iconEffect)
 
       this.setText(text || '')
       this.add_style_class_name('app-menu-label')
@@ -102,6 +98,10 @@ export const AppmenuLabel = GObject.registerClass(
 
     setIcon(icon) {
       this._icon.set_gicon(icon)
+    }
+
+    setGreyscale(greyscale) {
+      this._iconEffect.enabled = greyscale
     }
 
     _confirmForceClose() {

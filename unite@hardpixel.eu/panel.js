@@ -53,6 +53,10 @@ class AppmenuButton extends Handlers.Feature {
     )
 
     this.settings.connect(
+      'greyscale-tray-icons', this._onGreyscaleChange.bind(this)
+    )
+
+    this.settings.connect(
       'app-menu-max-width', this._onMaxWidthChange.bind(this)
     )
 
@@ -100,6 +104,7 @@ class AppmenuButton extends Handlers.Feature {
     )
 
     this._onHideIconChange()
+    this._onGreyscaleChange()
     this._onMaxWidthChange()
     this._syncPlacement()
 
@@ -231,6 +236,10 @@ class AppmenuButton extends Handlers.Feature {
 
   _onHideIconChange() {
     this.button.toggleIcon(this.combined ? false : this.hideIcon)
+  }
+
+  _onGreyscaleChange() {
+    this.button.setGreyscale(this.settings.get('greyscale-tray-icons'))
   }
 
   _onMaxWidthChange() {
