@@ -8,6 +8,12 @@ const THEME_DIRS = [
   GLib.build_filenamev([GLib.get_user_data_dir(), 'unite-shell/themes'])
 ]
 
+const NATIVE_ICON_NAMES = {
+  close: 'window-close-symbolic',
+  minimize: 'window-minimize-symbolic',
+  maximize: 'window-maximize-symbolic'
+}
+
 function fileExists(path) {
   return GLib.file_test(path, GLib.FileTest.EXISTS)
 }
@@ -71,6 +77,28 @@ export class WindowControlsTheme {
   }
 }
 
+class NativeWindowControlsTheme {
+  constructor(style = 'gtk3') {
+    this.uuid = `native-${style}`
+    this.name = 'Native'
+    this.native = true
+    this.style = style
+  }
+
+  getActionIcons() {
+    return Object.fromEntries(Object.entries(NATIVE_ICON_NAMES).map(([action, name]) => {
+      const icon = Gio.ThemedIcon.new(name)
+      return [action, { default: icon, hover: icon, active: icon }]
+    }))
+  }
+
+  getStyle() {
+    return GLib.build_filenamev([
+      Convenience.getPath(), 'themes', 'native', `${this.style}.css`
+    ])
+  }
+}
+
 export class WindowControlsThemes {
   constructor() {
     this.themes = {}
@@ -97,9 +125,11 @@ export class WindowControlsThemes {
     return this.available.find(theme => theme.match(gtkTheme)) || this.default
   }
 
-  locate(btnTheme, gtkTheme) {
+  locate(btnTheme, gtkTheme, nativeStyle = 'gtk3') {
     if (btnTheme == 'auto') {
       return this.match(gtkTheme)
+    } else if (btnTheme == 'native') {
+      return new NativeWindowControlsTheme(nativeStyle)
     } else {
       return this.get(btnTheme)
     }

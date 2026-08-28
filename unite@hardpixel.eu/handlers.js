@@ -293,13 +293,16 @@ export class Features {
     const feature = new klass()
     this.features.push(feature)
 
-    const setting = feature._settingsKey
+    const settings = Array.isArray(feature._settingsKey)
+      ? feature._settingsKey
+      : [feature._settingsKey]
     const checkCb = feature._checkActive
 
     feature.activated = false
 
     const isActive = () => {
-      return checkCb.call(null, this.settings.get(setting))
+      const values = settings.map(setting => this.settings.get(setting))
+      return checkCb.call(null, ...values)
     }
 
     const onChange = () => {
@@ -317,7 +320,9 @@ export class Features {
     }
 
     feature._doActivate = () => {
-      this.settings.connect(setting, onChange.bind(feature))
+      settings.forEach(setting => {
+        this.settings.connect(setting, onChange.bind(feature))
+      })
       onChange()
     }
 

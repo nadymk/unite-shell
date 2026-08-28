@@ -340,6 +340,9 @@ export const WindowControls = GObject.registerClass(
       this._controls = new St.BoxLayout({ style_class: 'window-controls-box' })
       this.add_child(this._controls)
 
+      this._policyVisible = false
+      this._hoverVisible = false
+
       this.add_style_class_name('window-controls')
       this.remove_style_class_name('panel-button')
     }
@@ -347,6 +350,8 @@ export const WindowControls = GObject.registerClass(
     setControlThemeParams(params) {
       this._actionIcons = params.actionIcons
       this._iconScaleWorkaround = params.iconScaleWorkaround
+      this._nativeIcons = params.nativeIcons
+      this._nativeIconStyle = params.nativeIconStyle
     }
 
     _addButton(action) {
@@ -354,7 +359,7 @@ export const WindowControls = GObject.registerClass(
       const bin = new St.Bin({ style_class: 'icon', x_align: pos, y_align: pos })
       const btn = new St.Button({ track_hover: true })
 
-      if (this._iconScaleWorkaround) {
+      if (this._iconScaleWorkaround || this._nativeIcons) {
         // A workaround for multi-scaling setups https://github.com/hardpixel/unite-shell/issues/106
         const gicon = this._actionIcons[action];
         const icon = new St.Icon({
@@ -362,6 +367,9 @@ export const WindowControls = GObject.registerClass(
           y_align: pos,
           gicon: gicon.default,
         })
+        if (this._nativeIcons) {
+          icon.set_icon_size(this._nativeIconStyle === 'gtk4' ? 16 : 14)
+        }
         btn.connect(
           'notify::hover', () => void icon.set_gicon(btn.hover ? gicon.hover : gicon.default)
         )
@@ -370,7 +378,9 @@ export const WindowControls = GObject.registerClass(
         )
         bin.set_child(icon)
         // Add only root class name for button sizing
-        btn.add_style_class_name('window-button')
+        btn.add_style_class_name(
+          `window-button${this._nativeIcons ? ' native' : ''}`
+        )
       } else {
         // Normal approach with CSS-based icons
         btn.add_style_class_name(`window-button ${action}`)
@@ -394,7 +404,25 @@ export const WindowControls = GObject.registerClass(
     }
 
     setVisible(visible) {
-      this.container.visible = visible
+      this._policyVisible = visible
+      this._syncVisibility()
+    }
+
+    setHoverVisible(visible) {
+      this._hoverVisible = visible
+      this._syncVisibility()
+    }
+
+    get policyVisible() {
+      return this._policyVisible
+    }
+
+    get hoverVisible() {
+      return this._hoverVisible
+    }
+
+    _syncVisibility() {
+      this.container.visible = this._policyVisible || this._hoverVisible
     }
   }
 )

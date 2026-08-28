@@ -24,6 +24,7 @@ class AppmenuButton extends Handlers.Feature {
     this.button   = new Buttons.AppmenuLabel()
     this.focused  = null
     this._hoverExpandTimeout = null
+    this._buttonsRevealTimeout = null
     this._titleCollapseTimeout = null
     this._layoutSyncTimeout = null
     this._titleExpanded = false
@@ -88,6 +89,18 @@ class AppmenuButton extends Handlers.Feature {
       'compact-app-menu-threshold', this._onCompactModeChange.bind(this)
     )
 
+    this.settings.connect(
+      'reveal-window-buttons-on-hover', this._onHoverButtonsChange.bind(this)
+    )
+
+    this.settings.connect(
+      'window-buttons-hover-delay', this._onHoverButtonsChange.bind(this)
+    )
+
+    this.settings.connect(
+      'show-window-buttons', this._onHoverButtonsChange.bind(this)
+    )
+
     this.button.connect(
       'notify::hover', this._onAppMenuHover.bind(this)
     )
@@ -98,6 +111,7 @@ class AppmenuButton extends Handlers.Feature {
 
     this.button.syncPlacement = this._syncPlacement.bind(this)
     this.button.syncLayout = this._syncLayout.bind(this)
+    this.button.syncHoverButtons = this._syncHoverButtons.bind(this)
 
     Main.panel.addToStatusArea(
       'uniteAppMenu', this.button, 1, 'left'
@@ -168,6 +182,18 @@ class AppmenuButton extends Handlers.Feature {
     return Math.max(0, this.settings.get('compact-app-menu-threshold'))
   }
 
+  get revealButtonsOnHover() {
+    return this.settings.get('reveal-window-buttons-on-hover')
+  }
+
+  get buttonsHoverDelay() {
+    return Math.max(0, this.settings.get('window-buttons-hover-delay'))
+  }
+
+  get buttonsMode() {
+    return this.settings.get('show-window-buttons')
+  }
+
   setLabelMaxWidth(width) {
     this.button._label.set_style(width ? `max-width: ${width}px` : null)
   }
@@ -202,16 +228,20 @@ class AppmenuButton extends Handlers.Feature {
     this.button.setReactive(visible && !loading)
     this.button.setVisible(visible)
     this._syncCompactMode()
+    this._syncHoverButtons()
   }
 
   _onAppMenuHover(appMenu) {
     if (!appMenu.get_hover()) {
       this._cancelHoverExpand()
+      this._cancelButtonsReveal()
+      this._setButtonsHoverVisible(false)
       this._queueTitleCollapse()
       return
     }
 
     this._cancelTitleCollapse()
+    this._syncHoverButtons()
 
     if (this.adaptiveMode && !this._fitsFullWidth()) {
       this._cancelHoverExpand()
@@ -257,8 +287,15 @@ class AppmenuButton extends Handlers.Feature {
     this._syncCompactMode()
   }
 
+  _onHoverButtonsChange() {
+    this._cancelButtonsReveal()
+    this._setButtonsHoverVisible(false)
+    this._syncHoverButtons()
+  }
+
   _onCombinedChange() {
     this._cancelHoverExpand()
+    this._onHoverButtonsChange()
     this._collapseTitle()
     this._onHideIconChange()
     this._onMaxWidthChange()
@@ -341,6 +378,48 @@ class AppmenuButton extends Handlers.Feature {
     this._syncCompactMode()
   }
 
+  _shouldRevealButtons() {
+    const controls = Main.panel.statusArea.uniteWindowControls
+
+    return controls && this.combined && this.revealButtonsOnHover &&
+      this.buttonsMode != 'always' && !controls.policyVisible &&
+      this.button.get_hover() && global.unite.panelWindow != null
+  }
+
+  _syncHoverButtons() {
+    const controls = Main.panel.statusArea.uniteWindowControls
+
+    if (!this._shouldRevealButtons()) {
+      this._cancelButtonsReveal()
+      this._setButtonsHoverVisible(false)
+      return
+    }
+
+    if (controls.hoverVisible || this._buttonsRevealTimeout) {
+      return
+    }
+
+    this._buttonsRevealTimeout = this.timeouts.timeout(this.buttonsHoverDelay, () => {
+      this._buttonsRevealTimeout = null
+
+      if (this._shouldRevealButtons()) {
+        this._setButtonsHoverVisible(true)
+      }
+    })
+  }
+
+  _setButtonsHoverVisible(visible) {
+    const controls = Main.panel.statusArea.uniteWindowControls
+
+    if (!controls || controls.hoverVisible == visible) {
+      return
+    }
+
+    controls.setHoverVisible(visible)
+    Main.panel.queue_relayout()
+    this._queueSyncLayout()
+  }
+
   _queueSyncLayout() {
     if (this._layoutSyncTimeout) {
       return
@@ -356,6 +435,13 @@ class AppmenuButton extends Handlers.Feature {
     if (this._hoverExpandTimeout) {
       this.timeouts.remove(this._hoverExpandTimeout)
       this._hoverExpandTimeout = null
+    }
+  }
+
+  _cancelButtonsReveal() {
+    if (this._buttonsRevealTimeout) {
+      this.timeouts.remove(this._buttonsRevealTimeout)
+      this._buttonsRevealTimeout = null
     }
   }
 
@@ -460,6 +546,8 @@ class AppmenuButton extends Handlers.Feature {
     global.unite.windowManager.removePanelStateListener(this._panelStateListener)
     this._panelStateListener = null
     this._cancelHoverExpand()
+    this._cancelButtonsReveal()
+    this._setButtonsHoverVisible(false)
     this._cancelTitleCollapse()
     this._titleExpanded = false
     this._acceptWindowControls = false
@@ -475,7 +563,11 @@ class AppmenuButton extends Handlers.Feature {
 
 class WindowButtons extends Handlers.Feature {
   constructor() {
-    super('show-window-buttons', setting => setting != 'never')
+    super(
+      ['show-window-buttons', 'reveal-window-buttons-on-hover', 'combine-window-buttons'],
+      (setting, revealOnHover, combined) =>
+        setting != 'never' || (revealOnHover && combined)
+    )
   }
 
   activate() {
@@ -519,6 +611,14 @@ class WindowButtons extends Handlers.Feature {
     )
 
     this.settings.connect(
+      'native-icon-style', this._onThemeChange.bind(this)
+    )
+
+    this.settings.connect(
+      'icon-theme', this._onNativeIconThemeChange.bind(this)
+    )
+
+    this.settings.connect(
       'gtk-theme', this._onAutoThemeChange.bind(this)
     )
 
@@ -544,6 +644,10 @@ class WindowButtons extends Handlers.Feature {
 
   get themeName() {
     return this.settings.get('window-buttons-theme')
+  }
+
+  get nativeIconStyle() {
+    return this.settings.get('native-icon-style')
   }
 
   get position() {
@@ -638,18 +742,22 @@ class WindowButtons extends Handlers.Feature {
 
   _onThemeChange() {
     const previousThemeUuid = this.theme.uuid
+    const previousThemeNative = this.theme.native || false
     this.controls.remove_style_class_name(this.theme.uuid)
 
-    this.theme = this.themes.locate(this.themeName, this.gtkTheme)
+    this.theme = this.themes.locate(
+      this.themeName, this.gtkTheme, this.nativeIconStyle
+    )
     this.styles.addShellStyle('windowButtons', this.theme.getStyle(this.isDark))
 
     this.controls.add_style_class_name(this.theme.uuid)
 
-    if (this.iconScaleWorkaround) {
-      // For workaround, we need to re-create elements on theme change
-      const shouldUpdateTheme = this.theme.uuid !== previousThemeUuid
-      this._updateIconScaleWorkaround(shouldUpdateTheme)
-    }
+    // Icon actors need to be recreated when entering or changing a native
+    // style; CSS-only themes update without rebuilding unless the scale
+    // workaround is enabled.
+    const shouldUpdateTheme = this.theme.uuid !== previousThemeUuid &&
+      (this.iconScaleWorkaround || previousThemeNative || this.theme.native)
+    this._updateIconScaleWorkaround(shouldUpdateTheme)
   }
 
   _onPanelStyleChange() {
@@ -668,6 +776,13 @@ class WindowButtons extends Handlers.Feature {
     }
   }
 
+  _onNativeIconThemeChange() {
+    if (this.themeName == 'native') {
+      this._onThemeChange()
+      this._onLayoutChange()
+    }
+  }
+
   _syncVisible() {
     const focusApp = global.unite.panelApp
 
@@ -679,12 +794,15 @@ class WindowButtons extends Handlers.Feature {
     }
 
     Main.panel.statusArea.uniteAppMenu?.syncLayout?.()
+    Main.panel.statusArea.uniteAppMenu?.syncHoverButtons?.()
   }
 
   _updateIconScaleWorkaround(forceLayoutChange = false) {
     this.controls.setControlThemeParams({
       actionIcons: this.theme.getActionIcons(this.isDark),
       iconScaleWorkaround: this.iconScaleWorkaround,
+      nativeIcons: this.theme.native || false,
+      nativeIconStyle: this.nativeIconStyle,
     })
 
 
@@ -701,6 +819,7 @@ class WindowButtons extends Handlers.Feature {
     this.styles.removeAll()
 
     Main.panel.statusArea.uniteAppMenu?.removeWindowControls?.()
+    this.controls.setHoverVisible(false)
 
     if (Main.panel.statusArea.uniteWindowControls === this.controls) {
       delete Main.panel.statusArea.uniteWindowControls

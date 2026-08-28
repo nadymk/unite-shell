@@ -20,6 +20,7 @@ class UnitePreferencesWidget {
     this._bindBooleans()
     this._bindEnumerations()
     this._bindIntegers()
+    this._bindDependencies()
   }
 
   _loadTemplate() {
@@ -82,6 +83,44 @@ class UnitePreferencesWidget {
   _bindIntegers() {
     let settings = this._settings.getTypeSettings('int')
     settings.forEach(setting => this._bindInput(setting, 'value'))
+  }
+
+  _bindDependencies() {
+    const revealRow = this._getWidget('reveal-window-buttons-on-hover-row')
+    const delayRow = this._getWidget('window-buttons-hover-delay-row')
+    const nativeStyleRow = this._getWidget('native-icon-style-row')
+
+    const syncHoverButtonOptions = () => {
+      const combined = this._settings.get_boolean('combine-window-buttons')
+      const buttonsMode = this._settings.get_string('show-window-buttons')
+      const enabled = this._settings.get_boolean('reveal-window-buttons-on-hover')
+      const available = combined && buttonsMode != 'always'
+
+      revealRow.set_sensitive(available)
+      delayRow.set_sensitive(available && enabled)
+    }
+
+    const syncNativeIconOptions = () => {
+      nativeStyleRow.set_sensitive(
+        this._settings.get_string('window-buttons-theme') === 'native'
+      )
+    }
+
+    this._settings.connect(
+      'changed::combine-window-buttons', syncHoverButtonOptions
+    )
+    this._settings.connect(
+      'changed::show-window-buttons', syncHoverButtonOptions
+    )
+    this._settings.connect(
+      'changed::reveal-window-buttons-on-hover', syncHoverButtonOptions
+    )
+    this._settings.connect(
+      'changed::window-buttons-theme', syncNativeIconOptions
+    )
+
+    syncHoverButtonOptions()
+    syncNativeIconOptions()
   }
 }
 

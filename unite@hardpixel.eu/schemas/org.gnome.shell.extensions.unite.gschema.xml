@@ -97,6 +97,16 @@
       <summary>Extra pixels required before the app menu button stays expanded.</summary>
     </key>
 
+    <key name="reveal-window-buttons-on-hover" type="b">
+      <default>false</default>
+      <summary>Temporarily show hidden window buttons when hovering over the combined app menu.</summary>
+    </key>
+
+    <key name="window-buttons-hover-delay" type="i">
+      <default>350</default>
+      <summary>Delay in milliseconds before hidden window buttons appear.</summary>
+    </key>
+
     <key name="use-activities-text" type="b">
       <default>true</default>
       <summary>Use text in activities button.</summary>
@@ -165,6 +175,11 @@
     <key name="window-buttons-theme" type="s">
       <default>"default"</default>
       <summary>Top bar window buttons theme.</summary>
+    </key>
+
+    <key name="native-icon-style" type="s">
+      <default>"gtk3"</default>
+      <summary>GTK generation used to style native window button icons.</summary>
     </key>
 
     <key name="hide-window-titlebars" enum="org.gnome.shell.extensions.unite.windowStates">
