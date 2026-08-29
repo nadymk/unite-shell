@@ -184,6 +184,18 @@ export const AppmenuLabel = GObject.registerClass(
       }
     }
 
+    setWindowControlsPlacement(placement, side) {
+      if (!this._windowControls) {
+        return
+      }
+
+      const resolved = placement == 'auto'
+        ? (side == 'left' ? 'after' : 'before')
+        : placement
+      const index = resolved == 'before' ? -1 : 0
+      this._container.set_child_at_index(this._windowControls, index)
+    }
+
     removeWindowControls() {
       if (this._windowControls?.get_parent() === this._container) {
         this._container.remove_child(this._windowControls)
@@ -342,6 +354,7 @@ export const WindowControls = GObject.registerClass(
 
       this._policyVisible = false
       this._hoverVisible = false
+      this._workspaceSuppressed = false
 
       this.add_style_class_name('window-controls')
       this.remove_style_class_name('panel-button')
@@ -352,6 +365,19 @@ export const WindowControls = GObject.registerClass(
       this._iconScaleWorkaround = params.iconScaleWorkaround
       this._nativeIcons = params.nativeIcons
       this._nativeIconStyle = params.nativeIconStyle
+    }
+
+    get content() {
+      return this._controls
+    }
+
+    restoreContent() {
+      if (this._controls.get_parent() !== this) {
+        this._controls.get_parent()?.remove_child(this._controls)
+        this.add_child(this._controls)
+      }
+
+      this._syncVisibility()
     }
 
     _addButton(action) {
@@ -406,10 +432,16 @@ export const WindowControls = GObject.registerClass(
     setVisible(visible) {
       this._policyVisible = visible
       this._syncVisibility()
+      Main.panel.statusArea.activities?.syncWindowControls?.()
     }
 
     setHoverVisible(visible) {
       this._hoverVisible = visible
+      this._syncVisibility()
+    }
+
+    setWorkspaceSuppressed(suppressed) {
+      this._workspaceSuppressed = suppressed
       this._syncVisibility()
     }
 
@@ -422,7 +454,10 @@ export const WindowControls = GObject.registerClass(
     }
 
     _syncVisibility() {
-      this.container.visible = this._policyVisible || this._hoverVisible
+      const visible = (this._policyVisible || this._hoverVisible) &&
+        !this._workspaceSuppressed
+      this.container.visible = visible && this._controls.get_parent() === this
+      this._controls.visible = visible
     }
   }
 )

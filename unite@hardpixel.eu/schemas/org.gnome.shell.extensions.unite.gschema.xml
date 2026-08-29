@@ -74,12 +74,38 @@
 
     <key name="combine-window-buttons" type="b">
       <default>false</default>
-      <summary>Combine the app icon, window buttons, and title into one top bar item.</summary>
+      <summary>Deprecated compatibility setting for combining window buttons with the app menu.</summary>
+    </key>
+
+    <key name="window-buttons-container" type="s">
+      <default>"separate"</default>
+      <summary>Panel item that hosts the window buttons.</summary>
+    </key>
+
+    <key name="window-buttons-order" type="s">
+      <default>"native"</default>
+      <summary>Order of window buttons in the top panel.</summary>
+    </key>
+
+    <key name="workspace-buttons-animation-duration" type="i">
+      <default>200</default>
+      <range min="0" max="2000" />
+      <summary>Workspace-hosted window button animation duration in milliseconds.</summary>
+    </key>
+
+    <key name="workspace-buttons-animation-direction" type="s">
+      <default>"bottom"</default>
+      <summary>Direction workspace-hosted window buttons enter from.</summary>
     </key>
 
     <key name="app-menu-placement" enum="org.gnome.shell.extensions.unite.appMenuPlacement">
       <default>"auto"</default>
       <summary>Place the app menu before or after the window controls.</summary>
+    </key>
+
+    <key name="app-menu-panel-placement" enum="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
+      <default>"left"</default>
+      <summary>App menu position in the top panel.</summary>
     </key>
 
     <key name="compact-app-menu-button" type="b">
@@ -115,6 +141,16 @@
     <key name="workspace-switcher-placement" enum="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
       <default>"right"</default>
       <summary>Workspace switcher position in the top bar.</summary>
+    </key>
+
+    <key name="clock-placement" enum="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
+      <default>"right"</default>
+      <summary>Clock position in the top panel.</summary>
+    </key>
+
+    <key name="system-indicators-placement" enum="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
+      <default>"last"</default>
+      <summary>System indicators position in the top panel.</summary>
     </key>
 
     <key name="show-desktop-name" type="b">

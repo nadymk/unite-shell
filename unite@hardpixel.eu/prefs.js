@@ -89,9 +89,14 @@ class UnitePreferencesWidget {
     const revealRow = this._getWidget('reveal-window-buttons-on-hover-row')
     const delayRow = this._getWidget('window-buttons-hover-delay-row')
     const nativeStyleRow = this._getWidget('native-icon-style-row')
+    const workspaceAnimationRows = [
+      this._getWidget('workspace-buttons-animation-duration-row'),
+      this._getWidget('workspace-buttons-animation-direction-row'),
+    ]
+    const appMenuPlacementRow = this._getWidget('app-menu-placement-row')
 
     const syncHoverButtonOptions = () => {
-      const combined = this._settings.get_boolean('combine-window-buttons')
+      const combined = this._settings.get_string('window-buttons-container') === 'appmenu'
       const buttonsMode = this._settings.get_string('show-window-buttons')
       const enabled = this._settings.get_boolean('reveal-window-buttons-on-hover')
       const available = combined && buttonsMode != 'always'
@@ -106,8 +111,19 @@ class UnitePreferencesWidget {
       )
     }
 
+    const syncWorkspaceAnimationOptions = () => {
+      const enabled = this._settings.get_string('window-buttons-container') === 'workspace'
+      workspaceAnimationRows.forEach(row => row.set_sensitive(enabled))
+    }
+
+    const syncAppMenuPlacementOption = () => {
+      appMenuPlacementRow.set_sensitive(
+        this._settings.get_string('window-buttons-container') === 'appmenu'
+      )
+    }
+
     this._settings.connect(
-      'changed::combine-window-buttons', syncHoverButtonOptions
+      'changed::window-buttons-container', syncHoverButtonOptions
     )
     this._settings.connect(
       'changed::show-window-buttons', syncHoverButtonOptions
@@ -118,9 +134,17 @@ class UnitePreferencesWidget {
     this._settings.connect(
       'changed::window-buttons-theme', syncNativeIconOptions
     )
+    this._settings.connect(
+      'changed::window-buttons-container', syncWorkspaceAnimationOptions
+    )
+    this._settings.connect(
+      'changed::window-buttons-container', syncAppMenuPlacementOption
+    )
 
     syncHoverButtonOptions()
     syncNativeIconOptions()
+    syncWorkspaceAnimationOptions()
+    syncAppMenuPlacementOption()
   }
 }
 

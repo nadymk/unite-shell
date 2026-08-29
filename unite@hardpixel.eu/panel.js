@@ -70,11 +70,11 @@ class AppmenuButton extends Handlers.Feature {
     )
 
     this.settings.connect(
-      'window-buttons-placement', this._onPositionChange.bind(this)
+      'app-menu-panel-placement', this._onPositionChange.bind(this)
     )
 
     this.settings.connect(
-      'combine-window-buttons', this._onCombinedChange.bind(this)
+      'window-buttons-container', this._onCombinedChange.bind(this)
     )
 
     this.settings.connect(
@@ -142,28 +142,20 @@ class AppmenuButton extends Handlers.Feature {
     return this.settings.get('app-menu-placement')
   }
 
+  get panelPlacement() {
+    return this.settings.get('app-menu-panel-placement')
+  }
+
+  get panelSide() {
+    return ['first', 'left'].includes(this.panelPlacement) ? 'left' : 'right'
+  }
+
+  get panelIndex() {
+    return ['first', 'right'].includes(this.panelPlacement) ? 0 : -1
+  }
+
   get combined() {
-    return this.settings.get('combine-window-buttons')
-  }
-
-  get buttonsPosition() {
-    return this.settings.get('window-buttons-position')
-  }
-
-  get buttonsPlacement() {
-    return this.settings.get('window-buttons-placement')
-  }
-
-  get combinedSide() {
-    const sides = { first: 'left', last: 'right', auto: this.buttonsPosition }
-    return sides[this.buttonsPlacement] || this.buttonsPlacement
-  }
-
-  get combinedIndex() {
-    if (this.buttonsPlacement == 'first') return 0
-    if (this.buttonsPlacement == 'last') return -1
-
-    return null
+    return this.settings.get('window-buttons-container') == 'appmenu'
   }
 
   get compactMode() {
@@ -307,7 +299,6 @@ class AppmenuButton extends Handlers.Feature {
     // Always position that wrapper; moving the button itself detaches it from
     // the actor whose visibility GNOME Shell manages.
     const container = this.button.container
-    const leftBox = Main.panel._leftBox
     const controls = this._acceptWindowControls
       ? Main.panel.statusArea.uniteWindowControls?.container
       : null
@@ -317,7 +308,9 @@ class AppmenuButton extends Handlers.Feature {
         this.button.setWindowControls(controls)
       }
 
-      const panelBox = this.combinedSide == 'right'
+      this.button.setWindowControlsPlacement(this.placement, this.panelSide)
+
+      const panelBox = this.panelSide == 'right'
         ? Main.panel._rightBox
         : Main.panel._leftBox
 
@@ -326,46 +319,23 @@ class AppmenuButton extends Handlers.Feature {
         panelBox.add_child(container)
       }
 
-      if (this.combinedIndex != null) {
-        panelBox.set_child_at_index(container, this.combinedIndex)
-      } else {
-        const sibling = this.combinedSide == 'right'
-          ? Main.panel.statusArea.quickSettings
-          : Main.panel.statusArea.activities
-        const siblingActor = sibling.get_parent()
-
-        if (siblingActor?.get_parent() === panelBox) {
-          panelBox.set_child_below_sibling(container, siblingActor)
-        } else {
-          panelBox.set_child_at_index(container, -1)
-        }
-      }
+      panelBox.set_child_at_index(container, this.panelIndex)
 
       return
     }
 
     this.button.removeWindowControls()
 
-    if (container.get_parent() !== leftBox) {
+    const panelBox = this.panelSide == 'right'
+      ? Main.panel._rightBox
+      : Main.panel._leftBox
+
+    if (container.get_parent() !== panelBox) {
       container.get_parent()?.remove_child(container)
-      leftBox.add_child(container)
+      panelBox.add_child(container)
     }
 
-    if (!controls || controls.get_parent() !== leftBox || this.placement == 'auto') {
-      leftBox.set_child_at_index(container, 1)
-      return
-    }
-
-    const children = leftBox.get_children()
-    const controlsIndex = children.indexOf(controls)
-
-    if (controlsIndex < 0) {
-      leftBox.set_child_at_index(container, 1)
-      return
-    }
-
-    const index = this.placement == 'before' ? controlsIndex : controlsIndex + 1
-    leftBox.set_child_at_index(container, index)
+    panelBox.set_child_at_index(container, this.panelIndex)
   }
 
   _syncPlacement() {
@@ -564,9 +534,8 @@ class AppmenuButton extends Handlers.Feature {
 class WindowButtons extends Handlers.Feature {
   constructor() {
     super(
-      ['show-window-buttons', 'reveal-window-buttons-on-hover', 'combine-window-buttons'],
-      (setting, revealOnHover, combined) =>
-        setting != 'never' || (revealOnHover && combined)
+      ['show-window-buttons', 'window-buttons-container'],
+      (setting, container) => setting != 'never' || container != 'separate'
     )
   }
 
@@ -603,7 +572,11 @@ class WindowButtons extends Handlers.Feature {
     )
 
     this.settings.connect(
-      'combine-window-buttons', this._onPositionChange.bind(this)
+      'window-buttons-container', this._onPositionChange.bind(this)
+    )
+
+    this.settings.connect(
+      'window-buttons-order', this._onLayoutChange.bind(this)
     )
 
     this.settings.connect(
@@ -659,7 +632,15 @@ class WindowButtons extends Handlers.Feature {
   }
 
   get combined() {
-    return this.settings.get('combine-window-buttons')
+    return this.settings.get('window-buttons-container') == 'appmenu'
+  }
+
+  get workspaceCombined() {
+    return this.settings.get('window-buttons-container') == 'workspace'
+  }
+
+  get buttonOrder() {
+    return this.settings.get('window-buttons-order')
   }
 
   get iconScaleWorkaround() {
@@ -695,10 +676,14 @@ class WindowButtons extends Handlers.Feature {
   }
 
   _onLayoutChange() {
-    const buttons = this.settings.get('window-buttons-layout')
+    let buttons
 
-    if (this.side != this.position) {
-      buttons.reverse()
+    if (this.buttonOrder == 'left') {
+      buttons = ['close', 'maximize', 'minimize']
+    } else if (this.buttonOrder == 'right') {
+      buttons = ['minimize', 'maximize', 'close']
+    } else {
+      buttons = this.settings.get('window-buttons-layout')
     }
 
     this.controls.addButtons(buttons)
@@ -709,15 +694,28 @@ class WindowButtons extends Handlers.Feature {
     const controls  = this.controls.container
     const container = controls.get_parent()
     const appmenu = Main.panel.statusArea.uniteAppMenu
+    const workspace = Main.panel.statusArea.activities
+
+    appmenu?.removeWindowControls?.()
+    workspace?.removeWindowControls?.()
 
     controls.add_style_class_name('window-controls-container')
 
     if (this.combined && appmenu && !forceStandalone) {
+      this.controls.restoreContent()
       appmenu.setWindowControls(controls)
       appmenu.syncPlacement?.()
       this._onLayoutChange()
       return
     }
+
+    if (this.workspaceCombined && workspace?.setWindowControls) {
+      workspace.setWindowControls(this.controls.content)
+      this._onLayoutChange()
+      return
+    }
+
+    this.controls.restoreContent()
 
     if (container !== this.container) {
       container?.remove_child(controls)
@@ -795,6 +793,7 @@ class WindowButtons extends Handlers.Feature {
 
     Main.panel.statusArea.uniteAppMenu?.syncLayout?.()
     Main.panel.statusArea.uniteAppMenu?.syncHoverButtons?.()
+    Main.panel.statusArea.activities?.syncWindowControls?.()
   }
 
   _updateIconScaleWorkaround(forceLayoutChange = false) {
@@ -819,6 +818,8 @@ class WindowButtons extends Handlers.Feature {
     this.styles.removeAll()
 
     Main.panel.statusArea.uniteAppMenu?.removeWindowControls?.()
+    Main.panel.statusArea.activities?.removeWindowControls?.()
+    this.controls.restoreContent()
     this.controls.setHoverVisible(false)
 
     if (Main.panel.statusArea.uniteWindowControls === this.controls) {
@@ -846,7 +847,7 @@ class ExtendLeftBox extends Handlers.Feature {
     )
 
     this.settings.connect(
-      'combine-window-buttons', this._syncEnabled.bind(this)
+      'window-buttons-container', this._syncEnabled.bind(this)
     )
 
     this._syncEnabled()
@@ -854,7 +855,7 @@ class ExtendLeftBox extends Handlers.Feature {
 
   get enabled() {
     return this.settings.get('extend-left-box') ||
-      this.settings.get('combine-window-buttons')
+      this.settings.get('window-buttons-container') == 'appmenu'
   }
 
   _syncEnabled() {
@@ -943,21 +944,274 @@ class WorkspaceSwitcherPosition extends Handlers.Feature {
 
   activate() {
     this.settings = new Handlers.Settings()
+    this.signals = new Handlers.Signals()
+    this.timeouts = new Handlers.Timeouts()
+    this._overviewActive = Main.overview.visibleTarget
+    this._workspaceSwitchActive = false
+    this._overviewHideTimeout = null
+    this._workspaceSwitchTimeout = null
+    this._showingWorkspace = null
     this.actor = Activities.container
+    this.workspaceChildren = Activities.get_children()
+    this.workspaceHost = new St.BoxLayout({ clip_to_allocation: true })
+    this.workspaceChildren.forEach(child => {
+      Activities.remove_child(child)
+      this.workspaceHost.add_child(child)
+    })
+    Activities.add_child(this.workspaceHost)
+    Activities.workspaceHost = this.workspaceHost
+    Activities.workspaceContent = this.workspaceChildren[0]
     this.originalParent = this.actor.get_parent()
     this.originalIndex = this.originalParent.get_children().indexOf(this.actor)
     this.syncPlacement = this._onPositionChange.bind(this)
     Activities.syncPlacement = this.syncPlacement
+    Activities.setWindowControls = this._setWindowControls.bind(this)
+    Activities.removeWindowControls = this._removeWindowControls.bind(this)
+    Activities.syncWindowControls = this._syncWindowControls.bind(this)
+
+    this.signals.connect(
+      Main.overview, 'showing', this._onOverviewShowing.bind(this)
+    )
+
+    this.signals.connect(
+      Main.overview, 'hiding', this._onOverviewHiding.bind(this)
+    )
+
+    this.signals.connect(
+      global.window_manager, 'switch-workspace', this._onWorkspaceSwitch.bind(this)
+    )
+
+    const swipeTracker = Main.wm._workspaceAnimation?._swipeTracker
+    if (swipeTracker) {
+      this.signals.connect(
+        swipeTracker, 'begin', this._onWorkspaceSwitch.bind(this)
+      )
+      this.signals.connect(
+        swipeTracker, 'end', this._waitForWorkspaceAnimation.bind(this)
+      )
+    }
 
     this.settings.connect(
       'workspace-switcher-placement', this.syncPlacement
     )
 
     this._onPositionChange()
+    Main.panel.statusArea.uniteWindowControls?.syncPlacement?.()
   }
 
   get placement() {
     return this.settings.get('workspace-switcher-placement')
+  }
+
+  get animationDuration() {
+    return Math.max(0, this.settings.get('workspace-buttons-animation-duration'))
+  }
+
+  get animationDirection() {
+    return this.settings.get('workspace-buttons-animation-direction')
+  }
+
+  get panelBox() {
+    return ['first', 'left'].includes(this.placement)
+      ? Main.panel._leftBox
+      : Main.panel._rightBox
+  }
+
+  get index() {
+    return ['first', 'right'].includes(this.placement) ? 0 : -1
+  }
+
+  _onPositionChange() {
+    const parent = this.actor.get_parent()
+
+    if (parent !== this.panelBox) {
+      parent?.remove_child(this.actor)
+      this.panelBox.add_child(this.actor)
+    }
+
+    this.panelBox.set_child_at_index(this.actor, this.index)
+    Main.panel.queue_relayout()
+  }
+
+  _setWindowControls(controls) {
+    if (this.controls === controls) {
+      return
+    }
+
+    this._removeWindowControls()
+    controls.get_parent()?.remove_child(controls)
+    this.workspaceHost.add_child(controls)
+    this.controls = controls
+    this._syncWindowControls()
+  }
+
+  _removeWindowControls() {
+    if (!this.controls) {
+      return
+    }
+
+    Main.panel.statusArea.uniteWindowControls?.setHoverVisible(false)
+    Main.panel.statusArea.uniteWindowControls?.setWorkspaceSuppressed(false)
+    this.controls.get_parent()?.remove_child(this.controls)
+    this.controls = null
+    this._setWorkspaceContentVisible(true)
+    Activities._clickGesture?.set_enabled(true)
+  }
+
+  _setWorkspaceContentVisible(visible) {
+    this.workspaceHost.get_children().forEach(child => {
+      if (child !== this.controls) {
+        child.visible = visible
+      }
+    })
+  }
+
+  _onOverviewShowing() {
+    if (this._overviewHideTimeout) {
+      this.timeouts.remove(this._overviewHideTimeout)
+      this._overviewHideTimeout = null
+    }
+
+    this._overviewActive = true
+    this._syncWindowControls()
+  }
+
+  _onOverviewHiding() {
+    if (this._overviewHideTimeout) {
+      this.timeouts.remove(this._overviewHideTimeout)
+    }
+
+    this._overviewHideTimeout = this.timeouts.timeout(300, () => {
+      this._overviewHideTimeout = null
+      this._overviewActive = false
+      this._syncWindowControls()
+    })
+  }
+
+  _onWorkspaceSwitch() {
+    this._workspaceSwitchActive = true
+    this._syncWindowControls()
+    this._waitForWorkspaceAnimation()
+  }
+
+  _waitForWorkspaceAnimation() {
+    if (this._workspaceSwitchTimeout) {
+      return
+    }
+
+    this._workspaceSwitchTimeout = this.timeouts.interval(16, () => {
+      const animation = Main.wm._workspaceAnimation
+      const inProgress = Main.wm._switchInProgress || animation?._switchData != null
+
+      if (inProgress) {
+        return true
+      }
+
+      this._workspaceSwitchTimeout = null
+      this._workspaceSwitchActive = false
+      this._syncWindowControls()
+      return false
+    })
+  }
+
+  _slideControlsIn() {
+    if (!this.controls) {
+      return
+    }
+
+    this.controls.remove_all_transitions()
+    const panelHeight = this.workspaceHost.height || Main.panel.height
+    const offset = this.animationDirection == 'top' ? -panelHeight : panelHeight
+    this.controls.set({
+      opacity: 0,
+      translation_y: offset,
+    })
+    this.controls.ease({
+      duration: this.animationDuration,
+      mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+      opacity: 255,
+      translation_y: 0,
+    })
+  }
+
+  _syncWindowControls() {
+    if (!this.controls) {
+      return
+    }
+
+    const windowControls = Main.panel.statusArea.uniteWindowControls
+    const showWorkspace = this._overviewActive || this._workspaceSwitchActive ||
+      !windowControls?.policyVisible
+
+    const wasShowingWorkspace = this._showingWorkspace
+    this._showingWorkspace = showWorkspace
+    this._setWorkspaceContentVisible(showWorkspace)
+    windowControls?.setWorkspaceSuppressed(showWorkspace)
+
+    if (showWorkspace) {
+      this.controls.remove_all_transitions()
+      this.controls.set({ opacity: 255, translation_y: 0 })
+    } else if (wasShowingWorkspace === true) {
+      this._slideControlsIn()
+    }
+
+    Activities._clickGesture?.set_enabled(showWorkspace)
+    Main.panel.queue_relayout()
+  }
+
+  destroy() {
+    this.settings.disconnectAll()
+    this.signals.disconnectAll()
+    this.timeouts.removeAll()
+    this._removeWindowControls()
+
+    if (Activities.syncPlacement === this.syncPlacement) {
+      delete Activities.syncPlacement
+    }
+
+    delete Activities.setWindowControls
+    delete Activities.removeWindowControls
+    delete Activities.syncWindowControls
+    delete Activities.workspaceHost
+    delete Activities.workspaceContent
+
+    Activities.remove_child(this.workspaceHost)
+    this.workspaceHost.get_children().forEach(child => {
+      this.workspaceHost.remove_child(child)
+      Activities.add_child(child)
+    })
+    this.workspaceHost.destroy()
+
+    const parent = this.actor.get_parent()
+
+    if (parent !== this.originalParent) {
+      parent?.remove_child(this.actor)
+      this.originalParent.add_child(this.actor)
+    }
+
+    this.originalParent.set_child_at_index(this.actor, this.originalIndex)
+    Main.panel.queue_relayout()
+  }
+}
+
+class PanelItemPosition extends Handlers.Feature {
+  constructor(setting) {
+    super(setting, () => true)
+    this.setting = setting
+  }
+
+  activate() {
+    this.settings = new Handlers.Settings()
+    this.actor = this.getActor().container
+    this.originalParent = this.actor.get_parent()
+    this.originalIndex = this.originalParent.get_children().indexOf(this.actor)
+
+    this.settings.connect(this.setting, this._onPositionChange.bind(this))
+    this._onPositionChange()
+  }
+
+  get placement() {
+    return this.settings.get(this.setting)
   }
 
   get panelBox() {
@@ -984,11 +1238,6 @@ class WorkspaceSwitcherPosition extends Handlers.Feature {
 
   destroy() {
     this.settings.disconnectAll()
-
-    if (Activities.syncPlacement === this.syncPlacement) {
-      delete Activities.syncPlacement
-    }
-
     const parent = this.actor.get_parent()
 
     if (parent !== this.originalParent) {
@@ -998,6 +1247,26 @@ class WorkspaceSwitcherPosition extends Handlers.Feature {
 
     this.originalParent.set_child_at_index(this.actor, this.originalIndex)
     Main.panel.queue_relayout()
+  }
+}
+
+class ClockPosition extends PanelItemPosition {
+  constructor() {
+    super('clock-placement')
+  }
+
+  getActor() {
+    return Main.panel.statusArea.dateMenu
+  }
+}
+
+class SystemIndicatorsPosition extends PanelItemPosition {
+  constructor() {
+    super('system-indicators-placement')
+  }
+
+  getActor() {
+    return Main.panel.statusArea.quickSettings
   }
 }
 
@@ -1025,6 +1294,10 @@ class ActivitiesButton extends Handlers.Feature {
       'show-desktop-name', this._syncVisible.bind(this)
     )
 
+    this.settings.connect(
+      'window-buttons-container', this._syncVisible.bind(this)
+    )
+
     this._syncVisible()
   }
 
@@ -1036,10 +1309,20 @@ class ActivitiesButton extends Handlers.Feature {
     return this.settings.get('show-desktop-name')
   }
 
+  get hostsWindowButtons() {
+    return this.settings.get('window-buttons-container') == 'workspace'
+  }
+
   _syncVisible() {
     const button   = Activities.container
     const overview = Main.overview.visibleTarget
     const focusApp = global.unite.panelApp
+
+    if (this.hostsWindowButtons) {
+      button.show()
+      Activities.syncWindowControls?.()
+      return
+    }
 
     if (this.hideButton == 'always') {
       return button.hide()
@@ -1076,18 +1359,23 @@ class ActivitiesText extends Handlers.Feature {
     this.label = new St.Label({ y_align: Clutter.ActorAlign.CENTER })
     this.label.set_text(Activities.get_accessible_name())
 
-    this.switcher = Activities.get_first_child()
-    Activities.remove_child(this.switcher)
-
-    Activities.add_child(this.label)
+    this.switcher = Activities.workspaceContent || Activities.get_first_child()
+    this.contentHost = Activities.workspaceHost || Activities
+    this.contentHost.remove_child(this.switcher)
+    this.contentHost.add_child(this.label)
+    Activities.workspaceContent = this.label
+    Activities.syncWindowControls?.()
   }
 
   destroy() {
-    Activities.remove_child(this.label)
+    this.contentHost.remove_child(this.label)
     this.label.destroy()
 
-    Activities.add_child(this.switcher)
+    this.contentHost.add_child(this.switcher)
+    Activities.workspaceContent = this.switcher
+    Activities.syncWindowControls?.()
     this.switcher = null
+    this.contentHost = null
   }
 }
 
@@ -1313,6 +1601,8 @@ export const PanelManager = GObject.registerClass(
       this.features.add(WindowButtons)
       this.features.add(ExtendLeftBox)
       this.features.add(WorkspaceSwitcherPosition)
+      this.features.add(ClockPosition)
+      this.features.add(SystemIndicatorsPosition)
       this.features.add(ActivitiesButton)
       this.features.add(ActivitiesText)
       this.features.add(DesktopName)

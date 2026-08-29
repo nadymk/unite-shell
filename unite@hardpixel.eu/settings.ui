@@ -16,6 +16,11 @@
     <property name="step-increment">50</property>
     <property name="page-increment">250</property>
   </object>
+  <object class="GtkAdjustment" id="workspace_buttons_animation_duration_adjustment">
+    <property name="upper">2000</property>
+    <property name="step-increment">25</property>
+    <property name="page-increment">100</property>
+  </object>
   <object class="GtkAdjustment" id="compact_threshold_adjustment">
     <property name="upper">2000</property>
     <property name="step-increment">1</property>
@@ -124,21 +129,28 @@
         </child>
         <child>
           <object class="AdwActionRow">
-            <property name="title" translatable="yes">Combine with window buttons</property>
-            <property name="subtitle" translatable="yes">Group the app icon, window buttons, and adaptive title at the window buttons position</property>
-            <property name="activatable-widget">combine_window_buttons</property>
+            <property name="title" translatable="yes">App menu position</property>
+            <property name="subtitle" translatable="yes">App menu position in the top panel</property>
+            <property name="activatable-widget">app_menu_panel_placement</property>
             <child>
-              <object class="GtkSwitch" id="combine_window_buttons">
+              <object class="GtkComboBoxText" id="app_menu_panel_placement">
                 <property name="valign">center</property>
-                <property name="active">0</property>
+                <property name="width-request">150</property>
+                <property name="active-id">1</property>
+                <items>
+                  <item id="0" translatable="yes">First</item>
+                  <item id="1" translatable="yes">Left</item>
+                  <item id="2" translatable="yes">Right</item>
+                  <item id="3" translatable="yes">Last</item>
+                </items>
               </object>
             </child>
           </object>
         </child>
         <child>
-          <object class="AdwActionRow">
-            <property name="title" translatable="yes">App menu placement</property>
-            <property name="subtitle" translatable="yes">Place the app menu next to the window controls</property>
+          <object class="AdwActionRow" id="app_menu_placement_row">
+            <property name="title" translatable="yes">Position relative to buttons</property>
+            <property name="subtitle" translatable="yes">Place the app menu before or after combined window controls</property>
             <property name="activatable-widget">app_menu_placement</property>
             <child>
               <object class="GtkComboBoxText" id="app_menu_placement">
@@ -273,10 +285,10 @@
                 <property name="width-request">130</property>
                 <property name="active-id">2</property>
                 <items>
-                  <item id="0" translatable="yes">First</item>
+                  <item id="0" translatable="yes">Absolutely First</item>
                   <item id="1" translatable="yes">Left</item>
                   <item id="2" translatable="yes">Right</item>
-                  <item id="3" translatable="yes">Last</item>
+                  <item id="3" translatable="yes">Absolutely Last</item>
                 </items>
               </object>
             </child>
@@ -296,6 +308,51 @@
                   <item id="0" translatable="yes">Never</item>
                   <item id="1" translatable="yes">Auto</item>
                   <item id="2" translatable="yes">Always</item>
+                </items>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="AdwPreferencesGroup">
+        <property name="title" translatable="yes">Panel Items</property>
+        <child>
+          <object class="AdwActionRow">
+            <property name="title" translatable="yes">Clock position</property>
+            <property name="subtitle" translatable="yes">Clock position in the top panel</property>
+            <property name="activatable-widget">clock_placement</property>
+            <child>
+              <object class="GtkComboBoxText" id="clock_placement">
+                <property name="valign">center</property>
+                <property name="width-request">150</property>
+                <property name="active-id">2</property>
+                <items>
+                  <item id="0" translatable="yes">Absolutely First</item>
+                  <item id="1" translatable="yes">Left</item>
+                  <item id="2" translatable="yes">Right</item>
+                  <item id="3" translatable="yes">Absolutely Last</item>
+                </items>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="AdwActionRow">
+            <property name="title" translatable="yes">System indicators position</property>
+            <property name="subtitle" translatable="yes">Wi-Fi, sound, and battery position in the top panel</property>
+            <property name="activatable-widget">system_indicators_placement</property>
+            <child>
+              <object class="GtkComboBoxText" id="system_indicators_placement">
+                <property name="valign">center</property>
+                <property name="width-request">150</property>
+                <property name="active-id">3</property>
+                <items>
+                  <item id="0" translatable="yes">Absolutely First</item>
+                  <item id="1" translatable="yes">Left</item>
+                  <item id="2" translatable="yes">Right</item>
+                  <item id="3" translatable="yes">Absolutely Last</item>
                 </items>
               </object>
             </child>
@@ -451,6 +508,77 @@
                   <item id="2" translatable="yes">Maximized</item>
                   <item id="3" translatable="yes">Both</item>
                   <item id="4" translatable="yes">Always</item>
+                </items>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="AdwActionRow">
+            <property name="title" translatable="yes">Button location</property>
+            <property name="subtitle" translatable="yes">Keep buttons separate or place them inside another panel item</property>
+            <property name="activatable-widget">window_buttons_container</property>
+            <child>
+              <object class="GtkComboBoxText" id="window_buttons_container">
+                <property name="valign">center</property>
+                <property name="width-request">170</property>
+                <property name="active-id">separate</property>
+                <items>
+                  <item id="separate" translatable="yes">Separate</item>
+                  <item id="appmenu" translatable="yes">AppMenu</item>
+                  <item id="workspace" translatable="yes">Workspace Switcher</item>
+                </items>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="AdwActionRow">
+            <property name="title" translatable="yes">Button order</property>
+            <property name="subtitle" translatable="yes">Order of close, maximize, and minimize buttons</property>
+            <property name="activatable-widget">window_buttons_order</property>
+            <child>
+              <object class="GtkComboBoxText" id="window_buttons_order">
+                <property name="valign">center</property>
+                <property name="width-request">170</property>
+                <property name="active-id">native</property>
+                <items>
+                  <item id="native" translatable="yes">Native</item>
+                  <item id="left" translatable="yes">Left — Close, Max, Min</item>
+                  <item id="right" translatable="yes">Right — Min, Max, Close</item>
+                </items>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="AdwActionRow" id="workspace_buttons_animation_duration_row">
+            <property name="title" translatable="yes">Animation speed</property>
+            <property name="subtitle" translatable="yes">Duration in milliseconds; lower values are faster</property>
+            <property name="activatable-widget">workspace_buttons_animation_duration</property>
+            <child>
+              <object class="GtkSpinButton" id="workspace_buttons_animation_duration">
+                <property name="valign">center</property>
+                <property name="width-request">170</property>
+                <property name="text">200</property>
+                <property name="adjustment">workspace_buttons_animation_duration_adjustment</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="AdwActionRow" id="workspace_buttons_animation_direction_row">
+            <property name="title" translatable="yes">Animation direction</property>
+            <property name="subtitle" translatable="yes">Direction window buttons enter from</property>
+            <property name="activatable-widget">workspace_buttons_animation_direction</property>
+            <child>
+              <object class="GtkComboBoxText" id="workspace_buttons_animation_direction">
+                <property name="valign">center</property>
+                <property name="width-request">170</property>
+                <property name="active-id">bottom</property>
+                <items>
+                  <item id="bottom" translatable="yes">Bottom</item>
+                  <item id="top" translatable="yes">Top</item>
                 </items>
               </object>
             </child>
