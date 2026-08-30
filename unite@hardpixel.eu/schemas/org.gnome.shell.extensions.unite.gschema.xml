@@ -26,6 +26,14 @@
     <value value="3" nick="last" />
   </enum>
 
+  <enum id="org.gnome.shell.extensions.unite.clockPlacement">
+    <value value="0" nick="default" />
+    <value value="1" nick="first" />
+    <value value="2" nick="left" />
+    <value value="3" nick="right" />
+    <value value="4" nick="last" />
+  </enum>
+
   <enum id="org.gnome.shell.extensions.unite.buttonsPlacement">
     <value value="0" nick="auto" />
     <value value="1" nick="left" />
@@ -143,8 +151,8 @@
       <summary>Workspace switcher position in the top bar.</summary>
     </key>
 
-    <key name="clock-placement" enum="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
-      <default>"right"</default>
+    <key name="clock-placement" enum="org.gnome.shell.extensions.unite.clockPlacement">
+      <default>"default"</default>
       <summary>Clock position in the top panel.</summary>
     </key>
 

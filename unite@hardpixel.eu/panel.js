@@ -1226,6 +1226,11 @@ class PanelItemPosition extends Handlers.Feature {
   }
 
   _onPositionChange() {
+    if (this.placement === 'default') {
+      this._restoreOriginalPosition()
+      return
+    }
+
     const parent = this.actor.get_parent()
 
     if (parent !== this.panelBox) {
@@ -1237,8 +1242,7 @@ class PanelItemPosition extends Handlers.Feature {
     Main.panel.queue_relayout()
   }
 
-  destroy() {
-    this.settings.disconnectAll()
+  _restoreOriginalPosition() {
     const parent = this.actor.get_parent()
 
     if (parent !== this.originalParent) {
@@ -1248,6 +1252,11 @@ class PanelItemPosition extends Handlers.Feature {
 
     this.originalParent.set_child_at_index(this.actor, this.originalIndex)
     Main.panel.queue_relayout()
+  }
+
+  destroy() {
+    this.settings.disconnectAll()
+    this._restoreOriginalPosition()
   }
 }
 

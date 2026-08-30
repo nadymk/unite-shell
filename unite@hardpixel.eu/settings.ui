@@ -327,12 +327,13 @@
               <object class="GtkComboBoxText" id="clock_placement">
                 <property name="valign">center</property>
                 <property name="width-request">150</property>
-                <property name="active-id">2</property>
+                <property name="active-id">0</property>
                 <items>
-                  <item id="0" translatable="yes">Absolutely First</item>
-                  <item id="1" translatable="yes">Left</item>
-                  <item id="2" translatable="yes">Right</item>
-                  <item id="3" translatable="yes">Absolutely Last</item>
+                  <item id="0" translatable="yes">Default</item>
+                  <item id="1" translatable="yes">Absolutely First</item>
+                  <item id="2" translatable="yes">Left</item>
+                  <item id="3" translatable="yes">Right</item>
+                  <item id="4" translatable="yes">Absolutely Last</item>
                 </items>
               </object>
             </child>
