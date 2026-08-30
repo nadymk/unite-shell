@@ -355,6 +355,9 @@ export const WindowControls = GObject.registerClass(
       this._policyVisible = false
       this._hoverVisible = false
       this._workspaceSuppressed = false
+      this._maximized = false
+      this._maximizeButton = null
+      this._maximizeIcon = null
 
       this.add_style_class_name('window-controls')
       this.remove_style_class_name('panel-button')
@@ -385,9 +388,12 @@ export const WindowControls = GObject.registerClass(
       const bin = new St.Bin({ style_class: 'icon', x_align: pos, y_align: pos })
       const btn = new St.Button({ track_hover: true })
 
-      if (this._iconScaleWorkaround || this._nativeIcons) {
+      if (this._iconScaleWorkaround || this._nativeIcons || action === 'maximize') {
         // A workaround for multi-scaling setups https://github.com/hardpixel/unite-shell/issues/106
-        const gicon = this._actionIcons[action];
+        const getGIcon = () => this._actionIcons[
+          action === 'maximize' && this._maximized ? 'unmaximize' : action
+        ]
+        const gicon = getGIcon()
         const icon = new St.Icon({
           x_align: pos,
           y_align: pos,
@@ -397,16 +403,27 @@ export const WindowControls = GObject.registerClass(
           icon.set_icon_size(this._nativeIconStyle === 'gtk4' ? 16 : 14)
         }
         btn.connect(
-          'notify::hover', () => void icon.set_gicon(btn.hover ? gicon.hover : gicon.default)
+          'notify::hover', () => {
+            const icons = getGIcon()
+            icon.set_gicon(btn.hover ? icons.hover : icons.default)
+          }
         )
         btn.connect(
-          'notify::pressed', () => void icon.set_gicon(btn.pressed ? gicon.active : gicon.default)
+          'notify::pressed', () => {
+            const icons = getGIcon()
+            icon.set_gicon(btn.pressed ? icons.active : icons.default)
+          }
         )
         bin.set_child(icon)
         // Add only root class name for button sizing
         btn.add_style_class_name(
           `window-button${this._nativeIcons ? ' native' : ''}`
         )
+
+        if (action === 'maximize') {
+          this._maximizeButton = btn
+          this._maximizeIcon = icon
+        }
       } else {
         // Normal approach with CSS-based icons
         btn.add_style_class_name(`window-button ${action}`)
@@ -426,7 +443,25 @@ export const WindowControls = GObject.registerClass(
 
     addButtons(buttons) {
       this._controls.destroy_all_children()
+      this._maximizeButton = null
+      this._maximizeIcon = null
       buttons && buttons.forEach(this._addButton.bind(this))
+    }
+
+    setMaximized(maximized) {
+      if (this._maximized === maximized) {
+        return
+      }
+
+      this._maximized = maximized
+
+      if (this._maximizeIcon) {
+        const icons = this._actionIcons[maximized ? 'unmaximize' : 'maximize']
+        const state = this._maximizeButton?.pressed
+          ? 'active'
+          : this._maximizeButton?.hover ? 'hover' : 'default'
+        this._maximizeIcon.set_gicon(icons[state])
+      }
     }
 
     setVisible(visible) {

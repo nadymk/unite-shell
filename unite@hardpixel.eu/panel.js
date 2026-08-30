@@ -605,8 +605,8 @@ class WindowButtons extends Handlers.Feature {
 
     this.controls.syncPlacement = forceStandalone => this._onPositionChange(forceStandalone)
 
-    this._onPositionChange()
     this._onThemeChange()
+    this._onPositionChange()
     this._syncVisible()
     Main.panel.statusArea.uniteAppMenu?.syncPlacement?.()
   }
@@ -786,6 +786,7 @@ class WindowButtons extends Handlers.Feature {
 
     if (focusApp && focusApp.state == Shell.AppState.RUNNING) {
       const win = global.unite.panelWindow
+      this.controls.setMaximized(win?.maximized || false)
       this.controls.setVisible(win && win.showButtons)
     } else {
       this.controls.setVisible(false)

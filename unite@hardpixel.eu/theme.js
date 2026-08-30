@@ -11,7 +11,8 @@ const THEME_DIRS = [
 const NATIVE_ICON_NAMES = {
   close: 'window-close-symbolic',
   minimize: 'window-minimize-symbolic',
-  maximize: 'window-maximize-symbolic'
+  maximize: 'window-maximize-symbolic',
+  unmaximize: ['window-restore-symbolic', 'window-maximize-symbolic']
 }
 
 function fileExists(path) {
@@ -61,7 +62,8 @@ export class WindowControlsTheme {
       this._gicons = {
         close:    getActionIconStates(dir, 'close'),
         minimize: getActionIconStates(dir, 'minimize'),
-        maximize: getActionIconStates(dir, 'maximize')
+        maximize: getActionIconStates(dir, 'maximize'),
+        unmaximize: getActionIconStates(dir, 'unmaximize', 'maximize')
       }
     }
 
@@ -87,7 +89,9 @@ class NativeWindowControlsTheme {
 
   getActionIcons() {
     return Object.fromEntries(Object.entries(NATIVE_ICON_NAMES).map(([action, name]) => {
-      const icon = Gio.ThemedIcon.new(name)
+      const icon = Array.isArray(name)
+        ? Gio.ThemedIcon.new_from_names(name)
+        : Gio.ThemedIcon.new(name)
       return [action, { default: icon, hover: icon, active: icon }]
     }))
   }
@@ -162,10 +166,16 @@ export class WindowControlsThemes {
   }
 }
 
-function getActionIconStates(iconsPath, action) {
+function getActionIconStates(iconsPath, action, fallbackAction = action) {
   const getGIcon = (state) => {
     const statePostfix = state ? `-${state}` : ''
-    const iconPath = GLib.build_filenamev([iconsPath, `${action}${statePostfix}.svg`])
+    let iconPath = GLib.build_filenamev([iconsPath, `${action}${statePostfix}.svg`])
+
+    if (!fileExists(iconPath)) {
+      iconPath = GLib.build_filenamev([
+        iconsPath, `${fallbackAction}${statePostfix}.svg`
+      ])
+    }
 
     return Gio.icon_new_for_string(iconPath)
   }
