@@ -2,8 +2,9 @@
   margin-right: -6px;
 }
 
-.tiled headerbar windowcontrols.end {
-  margin: 0 -200px 0 0;
+.tiled headerbar windowcontrols.end,
+.tiled headerbar windowcontrols.end > button {
+  margin: 0 -10000px 0 10000px;
   opacity: 0;
 }
 

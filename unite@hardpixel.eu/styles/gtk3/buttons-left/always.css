@@ -12,7 +12,7 @@ window .titlebar ~ headerbar:not(.selection-mode):not(.windowhandle) {
 
 window headerbar > box.left,
 window .titlebar > box.left {
-  margin: 0 0 0 -200px;
+  margin: 0 10000px 0 -10000px;
   opacity: 0;
 }
 
