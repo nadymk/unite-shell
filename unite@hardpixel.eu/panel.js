@@ -11,6 +11,152 @@ import * as Theme from './theme.js'
 import * as Handlers from './handlers.js'
 
 const Activities = Main.panel.statusArea.activities
+const PANEL_LAYOUT_IDS = [
+  'app-menu',
+  'workspace-switcher',
+  'window-buttons',
+  'clock',
+  'system-indicators',
+]
+const PANEL_LAYOUT_ACTORS = new Map()
+
+function getPanelLayout(settings) {
+  const entries = settings.get('panel-layout') || []
+  const parsed = []
+  const seen = new Set()
+
+  entries.forEach(entry => {
+    const [id, lane] = entry.split(':')
+    const valid = PANEL_LAYOUT_IDS.includes(id) &&
+      ['default', 'leftmost', 'left', 'center', 'right', 'rightmost'].includes(lane)
+
+    if (valid && !seen.has(id)) {
+      parsed.push({ id, lane })
+      seen.add(id)
+    }
+  })
+
+  PANEL_LAYOUT_IDS.forEach(id => {
+    if (!parsed.some(item => item.id === id)) {
+      parsed.push({ id, lane: 'default' })
+    }
+  })
+
+  return parsed
+}
+
+function getPanelPlacement(settings, id) {
+  return getPanelLayout(settings).find(item => item.id === id)?.lane || 'default'
+}
+
+function getPanelBox(lane) {
+  if (lane === 'center') return Main.panel._centerBox
+  if (['right', 'rightmost'].includes(lane)) return Main.panel._rightBox
+  return Main.panel._leftBox
+}
+
+function registerPanelLayoutActor(id, actor) {
+  PANEL_LAYOUT_ACTORS.set(id, actor)
+}
+
+function unregisterPanelLayoutActor(id, actor) {
+  if (PANEL_LAYOUT_ACTORS.get(id) === actor) {
+    PANEL_LAYOUT_ACTORS.delete(id)
+  }
+}
+
+function syncPanelLayout(settings) {
+  const layout = getPanelLayout(settings)
+
+  layout.forEach(({ id, lane }) => {
+    const actor = PANEL_LAYOUT_ACTORS.get(id)
+    if (!actor || lane === 'default') return
+
+    const panelBox = getPanelBox(lane)
+    if (actor.get_parent() !== panelBox) {
+      actor.get_parent()?.remove_child(actor)
+      panelBox.add_child(actor)
+    }
+  })
+
+  const atStart = (lane, panelBox, offset = 0) => {
+    const actors = layout
+      .filter(item => item.lane === lane)
+      .map(item => PANEL_LAYOUT_ACTORS.get(item.id))
+      .filter(Boolean)
+
+    actors.forEach((actor, index) => {
+      const target = offset + index
+      if (panelBox.get_children().indexOf(actor) !== target) {
+        panelBox.set_child_at_index(actor, target)
+      }
+    })
+
+    return offset + actors.length
+  }
+
+  let leftOffset = atStart('leftmost', Main.panel._leftBox)
+  atStart('left', Main.panel._leftBox, leftOffset)
+  atStart('center', Main.panel._centerBox)
+  atStart('right', Main.panel._rightBox)
+
+  const rightmost = layout.filter(item => item.lane === 'rightmost')
+    .map(item => PANEL_LAYOUT_ACTORS.get(item.id))
+    .filter(Boolean)
+
+  const rightChildren = Main.panel._rightBox.get_children()
+  const currentEdge = rightChildren.slice(-rightmost.length)
+  const edgeMatches = rightmost.every((actor, index) => actor === currentEdge[index])
+
+  if (!edgeMatches) {
+    rightmost.forEach(actor => {
+      Main.panel._rightBox.set_child_at_index(actor, -1)
+    })
+  }
+
+  Main.panel.queue_relayout()
+}
+
+class PanelLayoutManager extends Handlers.Feature {
+  constructor() {
+    super('panel-layout', () => true)
+  }
+
+  activate() {
+    this.settings = new Handlers.Settings()
+    this.signals = new Handlers.Signals()
+    this.timeouts = new Handlers.Timeouts()
+    this._syncTimeout = null
+
+    this.settings.connect('panel-layout', this._queueSync.bind(this))
+    const panelBoxes = [
+      Main.panel._leftBox, Main.panel._centerBox, Main.panel._rightBox,
+    ]
+    panelBoxes.forEach(panelBox => {
+      this.signals.connect(
+        panelBox, 'notify::allocation', this._queueSync.bind(this)
+      )
+    })
+
+    this._queueSync()
+  }
+
+  _queueSync() {
+    if (this._syncTimeout) return
+
+    this._syncTimeout = this.timeouts.idle(() => {
+      this._syncTimeout = null
+      syncPanelLayout(this.settings)
+    })
+  }
+
+  destroy() {
+    this.settings.disconnectAll()
+    this.signals.disconnectAll()
+    this.timeouts.removeAll()
+    this._syncTimeout = null
+  }
+}
 
 class AppmenuButton extends Handlers.Feature {
   constructor() {
@@ -74,6 +220,10 @@ class AppmenuButton extends Handlers.Feature {
     )
 
     this.settings.connect(
+      'panel-layout', this._onPositionChange.bind(this)
+    )
+
+    this.settings.connect(
       'window-buttons-container', this._onCombinedChange.bind(this)
     )
 
@@ -117,6 +267,10 @@ class AppmenuButton extends Handlers.Feature {
       'uniteAppMenu', this.button, 1, 'left'
     )
 
+    this._originalPanelParent = this.button.container.get_parent()
+    this._originalPanelIndex = this._originalPanelParent
+      .get_children().indexOf(this.button.container)
+
     this._onHideIconChange()
     this._onGreyscaleChange()
     this._onMaxWidthChange()
@@ -143,15 +297,12 @@ class AppmenuButton extends Handlers.Feature {
   }
 
   get panelPlacement() {
-    return this.settings.get('app-menu-panel-placement')
+    return getPanelPlacement(this.settings, 'app-menu')
   }
 
   get panelSide() {
-    return ['first', 'left'].includes(this.panelPlacement) ? 'left' : 'right'
-  }
-
-  get panelIndex() {
-    return ['first', 'right'].includes(this.panelPlacement) ? 0 : -1
+    if (this.panelPlacement === 'default') return 'left'
+    return ['right', 'rightmost'].includes(this.panelPlacement) ? 'right' : 'left'
   }
 
   get combined() {
@@ -303,6 +454,28 @@ class AppmenuButton extends Handlers.Feature {
       ? Main.panel.statusArea.uniteWindowControls?.container
       : null
 
+    if (this.panelPlacement === 'default') {
+      unregisterPanelLayoutActor('app-menu', container)
+
+      if (this.combined && controls) {
+        this.button.setWindowControls(controls)
+        this.button.setWindowControlsPlacement(this.placement, 'left')
+      } else if (!this.combined) {
+        this.button.removeWindowControls()
+      }
+
+      if (container.get_parent() !== this._originalPanelParent) {
+        container.get_parent()?.remove_child(container)
+        this._originalPanelParent.add_child(container)
+      }
+
+      this._originalPanelParent.set_child_at_index(
+        container, this._originalPanelIndex
+      )
+      Main.panel.queue_relayout()
+      return
+    }
+
     if (this.combined) {
       if (controls) {
         this.button.setWindowControls(controls)
@@ -310,32 +483,15 @@ class AppmenuButton extends Handlers.Feature {
 
       this.button.setWindowControlsPlacement(this.placement, this.panelSide)
 
-      const panelBox = this.panelSide == 'right'
-        ? Main.panel._rightBox
-        : Main.panel._leftBox
-
-      if (container.get_parent() !== panelBox) {
-        container.get_parent()?.remove_child(container)
-        panelBox.add_child(container)
-      }
-
-      panelBox.set_child_at_index(container, this.panelIndex)
-
+      registerPanelLayoutActor('app-menu', container)
+      syncPanelLayout(this.settings)
       return
     }
 
     this.button.removeWindowControls()
 
-    const panelBox = this.panelSide == 'right'
-      ? Main.panel._rightBox
-      : Main.panel._leftBox
-
-    if (container.get_parent() !== panelBox) {
-      container.get_parent()?.remove_child(container)
-      panelBox.add_child(container)
-    }
-
-    panelBox.set_child_at_index(container, this.panelIndex)
+    registerPanelLayoutActor('app-menu', container)
+    syncPanelLayout(this.settings)
   }
 
   _syncPlacement() {
@@ -437,7 +593,8 @@ class AppmenuButton extends Handlers.Feature {
     const container = this.button.container
     const panelBox = container.get_parent()
 
-    if (panelBox !== Main.panel._leftBox && panelBox !== Main.panel._rightBox) {
+    if (![Main.panel._leftBox, Main.panel._centerBox, Main.panel._rightBox]
+      .includes(panelBox)) {
       return true
     }
 
@@ -458,9 +615,11 @@ class AppmenuButton extends Handlers.Feature {
     const panelBox = container.get_parent()
     const panelWidth = Main.panel.get_width()
     const centerWidth = Main.panel._centerBox.get_width()
-    const sideCapacity = Math.max(0, Math.floor((panelWidth - centerWidth) / 2))
+    const capacity = panelBox === Main.panel._centerBox
+      ? centerWidth
+      : Math.max(0, Math.floor((panelWidth - centerWidth) / 2))
 
-    return sideCapacity - panelBox.get_children().reduce((width, child) => {
+    return capacity - panelBox.get_children().reduce((width, child) => {
       return child == container ? width : width + child.get_width()
     }, 0)
   }
@@ -525,6 +684,7 @@ class AppmenuButton extends Handlers.Feature {
     this.signals.disconnectAll()
     this.settings.disconnectAll()
 
+    unregisterPanelLayoutActor('app-menu', this.button.container)
     this.button.removeWindowControls()
     Main.panel.statusArea.uniteWindowControls?.syncPlacement?.(true)
     this.button.destroy()
@@ -569,6 +729,10 @@ class WindowButtons extends Handlers.Feature {
 
     this.settings.connect(
       'window-buttons-placement', this._onPositionChange.bind(this)
+    )
+
+    this.settings.connect(
+      'panel-layout', this._onPositionChange.bind(this)
     )
 
     this.settings.connect(
@@ -628,7 +792,7 @@ class WindowButtons extends Handlers.Feature {
   }
 
   get placement() {
-    return this.settings.get('window-buttons-placement')
+    return getPanelPlacement(this.settings, 'window-buttons')
   }
 
   get combined() {
@@ -648,15 +812,14 @@ class WindowButtons extends Handlers.Feature {
   }
 
   get side() {
-    const sides = { first: 'left', last: 'right', auto: this.position }
-    return sides[this.placement] || this.placement
+    if (this.placement === 'default') return this.position
+    if (this.placement === 'leftmost') return 'left'
+    if (this.placement === 'rightmost') return 'right'
+    return this.placement
   }
 
   get index() {
-    if (this.placement == 'first') return 0
-    if (this.placement == 'last') return -1
-
-    return null
+    return this.placement === 'default' ? null : 0
   }
 
   get sibling() {
@@ -668,11 +831,7 @@ class WindowButtons extends Handlers.Feature {
   }
 
   get container() {
-    if (this.side == 'left') {
-      return Main.panel._leftBox
-    } else {
-      return Main.panel._rightBox
-    }
+    return getPanelBox(this.side)
   }
 
   _onLayoutChange() {
@@ -702,6 +861,7 @@ class WindowButtons extends Handlers.Feature {
     controls.add_style_class_name('window-controls-container')
 
     if (this.combined && appmenu && !forceStandalone) {
+      unregisterPanelLayoutActor('window-buttons', controls)
       this.controls.restoreContent()
       appmenu.setWindowControls(controls)
       appmenu.syncPlacement?.()
@@ -710,6 +870,7 @@ class WindowButtons extends Handlers.Feature {
     }
 
     if (this.workspaceCombined && workspace?.setWindowControls) {
+      unregisterPanelLayoutActor('window-buttons', controls)
       workspace.setWindowControls(this.controls.content)
       this._onLayoutChange()
       return
@@ -717,14 +878,14 @@ class WindowButtons extends Handlers.Feature {
 
     this.controls.restoreContent()
 
-    if (container !== this.container) {
-      container?.remove_child(controls)
-      this.container.add_child(controls)
-    }
+    if (this.placement === 'default') {
+      unregisterPanelLayoutActor('window-buttons', controls)
 
-    if (this.index != null) {
-      this.container.set_child_at_index(controls, this.index)
-    } else {
+      if (container !== this.container) {
+        container?.remove_child(controls)
+        this.container.add_child(controls)
+      }
+
       const sibling = this.sibling.get_parent()
 
       if (sibling?.get_parent() === this.container) {
@@ -732,6 +893,9 @@ class WindowButtons extends Handlers.Feature {
       } else {
         this.container.set_child_at_index(controls, -1)
       }
+    } else {
+      registerPanelLayoutActor('window-buttons', controls)
+      syncPanelLayout(this.settings)
     }
 
     Main.panel.statusArea.uniteAppMenu?.syncPlacement?.()
@@ -818,6 +982,7 @@ class WindowButtons extends Handlers.Feature {
     this.settings.disconnectAll()
     this.styles.removeAll()
 
+    unregisterPanelLayoutActor('window-buttons', this.controls.container)
     Main.panel.statusArea.uniteAppMenu?.removeWindowControls?.()
     Main.panel.statusArea.activities?.removeWindowControls?.()
     this.controls.restoreContent()
@@ -996,12 +1161,16 @@ class WorkspaceSwitcherPosition extends Handlers.Feature {
       'workspace-switcher-placement', this.syncPlacement
     )
 
+    this.settings.connect(
+      'panel-layout', this.syncPlacement
+    )
+
     this._onPositionChange()
     Main.panel.statusArea.uniteWindowControls?.syncPlacement?.()
   }
 
   get placement() {
-    return this.settings.get('workspace-switcher-placement')
+    return getPanelPlacement(this.settings, 'workspace-switcher')
   }
 
   get animationDuration() {
@@ -1012,25 +1181,26 @@ class WorkspaceSwitcherPosition extends Handlers.Feature {
     return this.settings.get('workspace-buttons-animation-direction')
   }
 
-  get panelBox() {
-    return ['first', 'left'].includes(this.placement)
-      ? Main.panel._leftBox
-      : Main.panel._rightBox
-  }
-
-  get index() {
-    return ['first', 'right'].includes(this.placement) ? 0 : -1
-  }
-
   _onPositionChange() {
-    const parent = this.actor.get_parent()
-
-    if (parent !== this.panelBox) {
-      parent?.remove_child(this.actor)
-      this.panelBox.add_child(this.actor)
+    if (this.placement === 'default') {
+      unregisterPanelLayoutActor('workspace-switcher', this.actor)
+      this._restoreOriginalPosition()
+      return
     }
 
-    this.panelBox.set_child_at_index(this.actor, this.index)
+    registerPanelLayoutActor('workspace-switcher', this.actor)
+    syncPanelLayout(this.settings)
+  }
+
+  _restoreOriginalPosition() {
+    const parent = this.actor.get_parent()
+
+    if (parent !== this.originalParent) {
+      parent?.remove_child(this.actor)
+      this.originalParent.add_child(this.actor)
+    }
+
+    this.originalParent.set_child_at_index(this.actor, this.originalIndex)
     Main.panel.queue_relayout()
   }
 
@@ -1164,6 +1334,7 @@ class WorkspaceSwitcherPosition extends Handlers.Feature {
     this.settings.disconnectAll()
     this.signals.disconnectAll()
     this.timeouts.removeAll()
+    unregisterPanelLayoutActor('workspace-switcher', this.actor)
     this._removeWindowControls()
 
     if (Activities.syncPlacement === this.syncPlacement) {
@@ -1183,22 +1354,15 @@ class WorkspaceSwitcherPosition extends Handlers.Feature {
     })
     this.workspaceHost.destroy()
 
-    const parent = this.actor.get_parent()
-
-    if (parent !== this.originalParent) {
-      parent?.remove_child(this.actor)
-      this.originalParent.add_child(this.actor)
-    }
-
-    this.originalParent.set_child_at_index(this.actor, this.originalIndex)
-    Main.panel.queue_relayout()
+    this._restoreOriginalPosition()
   }
 }
 
 class PanelItemPosition extends Handlers.Feature {
-  constructor(setting) {
+  constructor(setting, layoutId) {
     super(setting, () => true)
     this.setting = setting
+    this.layoutId = layoutId
   }
 
   activate() {
@@ -1208,38 +1372,23 @@ class PanelItemPosition extends Handlers.Feature {
     this.originalIndex = this.originalParent.get_children().indexOf(this.actor)
 
     this.settings.connect(this.setting, this._onPositionChange.bind(this))
+    this.settings.connect('panel-layout', this._onPositionChange.bind(this))
     this._onPositionChange()
   }
 
   get placement() {
-    return this.settings.get(this.setting)
-  }
-
-  get panelBox() {
-    return ['first', 'left'].includes(this.placement)
-      ? Main.panel._leftBox
-      : Main.panel._rightBox
-  }
-
-  get index() {
-    return ['first', 'right'].includes(this.placement) ? 0 : -1
+    return getPanelPlacement(this.settings, this.layoutId)
   }
 
   _onPositionChange() {
     if (this.placement === 'default') {
+      unregisterPanelLayoutActor(this.layoutId, this.actor)
       this._restoreOriginalPosition()
       return
     }
 
-    const parent = this.actor.get_parent()
-
-    if (parent !== this.panelBox) {
-      parent?.remove_child(this.actor)
-      this.panelBox.add_child(this.actor)
-    }
-
-    this.panelBox.set_child_at_index(this.actor, this.index)
-    Main.panel.queue_relayout()
+    registerPanelLayoutActor(this.layoutId, this.actor)
+    syncPanelLayout(this.settings)
   }
 
   _restoreOriginalPosition() {
@@ -1256,13 +1405,14 @@ class PanelItemPosition extends Handlers.Feature {
 
   destroy() {
     this.settings.disconnectAll()
+    unregisterPanelLayoutActor(this.layoutId, this.actor)
     this._restoreOriginalPosition()
   }
 }
 
 class ClockPosition extends PanelItemPosition {
   constructor() {
-    super('clock-placement')
+    super('clock-placement', 'clock')
   }
 
   getActor() {
@@ -1272,7 +1422,7 @@ class ClockPosition extends PanelItemPosition {
 
 class SystemIndicatorsPosition extends PanelItemPosition {
   constructor() {
-    super('system-indicators-placement')
+    super('system-indicators-placement', 'system-indicators')
   }
 
   getActor() {
@@ -1607,6 +1757,7 @@ export const PanelManager = GObject.registerClass(
     _init() {
       this.features = new Handlers.Features()
 
+      this.features.add(PanelLayoutManager)
       this.features.add(AppmenuButton)
       this.features.add(WindowButtons)
       this.features.add(ExtendLeftBox)

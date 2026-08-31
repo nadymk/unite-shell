@@ -130,6 +130,7 @@
         <child>
           <object class="AdwActionRow">
             <property name="title" translatable="yes">App menu position</property>
+            <property name="visible">0</property>
             <property name="subtitle" translatable="yes">App menu position in the top panel</property>
             <property name="activatable-widget">app_menu_panel_placement</property>
             <child>
@@ -278,6 +279,7 @@
           <object class="AdwActionRow">
             <property name="title" translatable="yes">Panel position</property>
             <property name="subtitle" translatable="yes">Workspace switcher position in the top panel</property>
+            <property name="visible">0</property>
             <property name="activatable-widget">workspace_switcher_placement</property>
             <child>
               <object class="GtkComboBoxText" id="workspace_switcher_placement">
@@ -321,6 +323,7 @@
         <child>
           <object class="AdwActionRow">
             <property name="title" translatable="yes">Clock position</property>
+            <property name="visible">0</property>
             <property name="subtitle" translatable="yes">Clock position in the top panel</property>
             <property name="activatable-widget">clock_placement</property>
             <child>
@@ -342,6 +345,7 @@
         <child>
           <object class="AdwActionRow">
             <property name="title" translatable="yes">System indicators position</property>
+            <property name="visible">0</property>
             <property name="subtitle" translatable="yes">Wi-Fi, sound, and battery position in the top panel</property>
             <property name="activatable-widget">system_indicators_placement</property>
             <child>
@@ -392,6 +396,17 @@
             </child>
           </object>
         </child>
+      </object>
+    </child>
+  </object>
+  <object class="AdwPreferencesPage" id="layout_page">
+    <property name="name">layout-page</property>
+    <property name="title" translatable="yes">Layout</property>
+    <property name="icon-name">view-list-symbolic</property>
+    <child>
+      <object class="AdwPreferencesGroup" id="panel_layout_group">
+        <property name="title" translatable="yes">Panel Layout</property>
+        <property name="description" translatable="yes">Drag items into left-to-right order, then choose the panel section for each item. Default leaves an item under GNOME Shell or another extension's control.</property>
       </object>
     </child>
   </object>
@@ -617,6 +632,7 @@
           <object class="AdwActionRow">
             <property name="title" translatable="yes">Panel position</property>
             <property name="subtitle" translatable="yes">Window buttons position in top panel</property>
+            <property name="visible">0</property>
             <property name="activatable-widget">window_buttons_placement</property>
             <child>
               <object class="GtkComboBoxText" id="window_buttons_placement">

@@ -33,6 +33,7 @@ export const SettingsManager = GObject.registerClass(
         'show-window-title':          'enum',
         'show-appmenu-button':        'boolean',
         'window-buttons-container':   'select',
+        'panel-layout':               'strv',
         'window-buttons-order':       'select',
         'workspace-buttons-animation-duration': 'int',
         'workspace-buttons-animation-direction': 'select',
@@ -83,6 +84,7 @@ export const SettingsManager = GObject.registerClass(
       switch (this.getSettingType(key)) {
         case 'int':     return this.get_int(key)
         case 'boolean': return this.get_boolean(key)
+        case 'strv':    return this.get_strv(key)
         default:        return this.get_string(key)
       }
     }
@@ -93,6 +95,7 @@ export const SettingsManager = GObject.registerClass(
       switch (this.getSettingType(key)) {
         case 'int':     return this.set_int(key, value)
         case 'boolean': return this.set_boolean(key, value)
+        case 'strv':    return this.set_strv(key, value)
         default:        return this.set_string(key, value)
       }
     }

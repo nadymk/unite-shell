@@ -90,6 +90,11 @@
       <summary>Panel item that hosts the window buttons.</summary>
     </key>
 
+    <key name="panel-layout" type="as">
+      <default>["app-menu:left", "workspace-switcher:right", "window-buttons:right", "clock:default", "system-indicators:rightmost"]</default>
+      <summary>Ordered panel items and the panel section used for each item.</summary>
+    </key>
+
     <key name="window-buttons-order" type="s">
       <default>"native"</default>
       <summary>Order of window buttons in the top panel.</summary>

@@ -18,6 +18,29 @@ export default class UniteExtension extends Extension {
       settings.set_string('window-buttons-container', 'appmenu')
     }
 
+    if (settings.get_user_value('panel-layout') == null) {
+      const preferences = Convenience.getPreferences()
+      const lane = placement => {
+        if (placement == 'default') return 'default'
+        if (placement == 'first') return 'leftmost'
+        if (placement == 'last') return 'rightmost'
+        return placement
+      }
+      const buttonPlacement = settings.get_string('window-buttons-placement')
+      const buttonLane = buttonPlacement == 'auto'
+        ? preferences.getSetting('window-buttons-position')
+        : lane(buttonPlacement)
+      const layout = [
+        `app-menu:${lane(settings.get_string('app-menu-panel-placement'))}`,
+        `workspace-switcher:${lane(settings.get_string('workspace-switcher-placement'))}`,
+        `window-buttons:${buttonLane}`,
+        `clock:${lane(settings.get_string('clock-placement'))}`,
+        `system-indicators:${lane(settings.get_string('system-indicators-placement'))}`,
+      ]
+
+      settings.set_strv('panel-layout', layout)
+    }
+
     this.windowManager = new WindowManager()
     this.panelManager  = new PanelManager()
     this.layoutManager = new LayoutManager()
