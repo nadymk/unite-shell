@@ -26,6 +26,14 @@
     <value value="3" nick="last" />
   </enum>
 
+  <enum id="org.gnome.shell.extensions.unite.clockPlacement">
+    <value value="0" nick="default" />
+    <value value="1" nick="first" />
+    <value value="2" nick="left" />
+    <value value="3" nick="right" />
+    <value value="4" nick="last" />
+  </enum>
+
   <enum id="org.gnome.shell.extensions.unite.buttonsPlacement">
     <value value="0" nick="auto" />
     <value value="1" nick="left" />
@@ -74,12 +82,43 @@
 
     <key name="combine-window-buttons" type="b">
       <default>false</default>
-      <summary>Combine the app icon, window buttons, and title into one top bar item.</summary>
+      <summary>Deprecated compatibility setting for combining window buttons with the app menu.</summary>
+    </key>
+
+    <key name="window-buttons-container" type="s">
+      <default>"separate"</default>
+      <summary>Panel item that hosts the window buttons.</summary>
+    </key>
+
+    <key name="panel-layout" type="as">
+      <default>["app-menu:left", "workspace-switcher:right", "window-buttons:right", "clock:default", "system-indicators:rightmost"]</default>
+      <summary>Ordered panel items and the panel section used for each item.</summary>
+    </key>
+
+    <key name="window-buttons-order" type="s">
+      <default>"native"</default>
+      <summary>Order of window buttons in the top panel.</summary>
+    </key>
+
+    <key name="workspace-buttons-animation-duration" type="i">
+      <default>200</default>
+      <range min="0" max="2000" />
+      <summary>Workspace-hosted window button animation duration in milliseconds.</summary>
+    </key>
+
+    <key name="workspace-buttons-animation-direction" type="s">
+      <default>"bottom"</default>
+      <summary>Direction workspace-hosted window buttons enter from.</summary>
     </key>
 
     <key name="app-menu-placement" enum="org.gnome.shell.extensions.unite.appMenuPlacement">
       <default>"auto"</default>
       <summary>Place the app menu before or after the window controls.</summary>
+    </key>
+
+    <key name="app-menu-panel-placement" enum="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
+      <default>"left"</default>
+      <summary>App menu position in the top panel.</summary>
     </key>
 
     <key name="compact-app-menu-button" type="b">
@@ -97,6 +136,16 @@
       <summary>Extra pixels required before the app menu button stays expanded.</summary>
     </key>
 
+    <key name="reveal-window-buttons-on-hover" type="b">
+      <default>false</default>
+      <summary>Temporarily show hidden window buttons when hovering over the combined app menu.</summary>
+    </key>
+
+    <key name="window-buttons-hover-delay" type="i">
+      <default>350</default>
+      <summary>Delay in milliseconds before hidden window buttons appear.</summary>
+    </key>
+
     <key name="use-activities-text" type="b">
       <default>true</default>
       <summary>Use text in activities button.</summary>
@@ -105,6 +154,16 @@
     <key name="workspace-switcher-placement" enum="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
       <default>"right"</default>
       <summary>Workspace switcher position in the top bar.</summary>
+    </key>
+
+    <key name="clock-placement" enum="org.gnome.shell.extensions.unite.clockPlacement">
+      <default>"default"</default>
+      <summary>Clock position in the top panel.</summary>
+    </key>
+
+    <key name="system-indicators-placement" enum="org.gnome.shell.extensions.unite.workspaceSwitcherPlacement">
+      <default>"last"</default>
+      <summary>System indicators position in the top panel.</summary>
     </key>
 
     <key name="show-desktop-name" type="b">
@@ -165,6 +224,11 @@
     <key name="window-buttons-theme" type="s">
       <default>"default"</default>
       <summary>Top bar window buttons theme.</summary>
+    </key>
+
+    <key name="native-icon-style" type="s">
+      <default>"gtk3"</default>
+      <summary>GTK generation used to style native window button icons.</summary>
     </key>
 
     <key name="hide-window-titlebars" enum="org.gnome.shell.extensions.unite.windowStates">

@@ -42,10 +42,16 @@ cd unite-shell
 corepack enable
 yarn install
 yarn package
-gnome-extensions install --force build/unite-v85.zip
+gnome-extensions install --force build/unite-v2026.08.28.zip
 ```
 
 To get notifications for new releases, you can watch this repository.
+
+Fork releases use calendar versions in `YYYY.MM.DD` format. Running
+`yarn version:date` updates the project to today's UTC date; an explicit date can
+be supplied with `yarn version:date 2026.08.28`. Only one release is made per
+calendar day. Commit the resulting `package.json` and extension metadata changes
+before running the release workflow; it rejects unsynchronized version data.
 
 For the complete Ubuntu Unity layout, you can combine it with [Dash to Dock](https://github.com/micheleg/dash-to-dock) extension and [Gnome HUD](https://github.com/hardpixel/gnome-hud) menu.
 

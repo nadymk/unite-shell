@@ -297,9 +297,10 @@ const MetaWindow = GObject.registerClass(
       if (this.isPanelTarget) {
         const controls = Main.panel.statusArea.uniteWindowControls
 
-        controls && controls.setVisible(
-          !this.skipTaskbar && this.showButtons
-        )
+        if (controls) {
+          controls.setMaximized(this.maximized)
+          controls.setVisible(!this.skipTaskbar && this.showButtons)
+        }
       }
     }
 

@@ -28,13 +28,22 @@ export const SettingsManager = GObject.registerClass(
         'autofocus-windows':          'boolean',
         'hide-activities-button':     'enum',
         'workspace-switcher-placement': 'enum',
+        'clock-placement':             'enum',
+        'system-indicators-placement': 'enum',
         'show-window-title':          'enum',
         'show-appmenu-button':        'boolean',
-        'combine-window-buttons':     'boolean',
+        'window-buttons-container':   'select',
+        'panel-layout':               'strv',
+        'window-buttons-order':       'select',
+        'workspace-buttons-animation-duration': 'int',
+        'workspace-buttons-animation-direction': 'select',
         'app-menu-placement':         'enum',
+        'app-menu-panel-placement':   'enum',
         'compact-app-menu-button':    'boolean',
         'compact-app-menu-hover-delay': 'int',
         'compact-app-menu-threshold': 'int',
+        'reveal-window-buttons-on-hover': 'boolean',
+        'window-buttons-hover-delay': 'int',
         'show-desktop-name':          'boolean',
         'use-activities-text':        'boolean',
         'desktop-name-text':          'string',
@@ -44,6 +53,7 @@ export const SettingsManager = GObject.registerClass(
         'greyscale-tray-icons':       'boolean',
         'show-window-buttons':        'enum',
         'window-buttons-theme':       'select',
+        'native-icon-style':          'select',
         'hide-window-titlebars':      'enum',
         'enable-titlebar-actions':    'boolean',
         'window-buttons-placement':   'enum',
@@ -74,6 +84,7 @@ export const SettingsManager = GObject.registerClass(
       switch (this.getSettingType(key)) {
         case 'int':     return this.get_int(key)
         case 'boolean': return this.get_boolean(key)
+        case 'strv':    return this.get_strv(key)
         default:        return this.get_string(key)
       }
     }
@@ -84,6 +95,7 @@ export const SettingsManager = GObject.registerClass(
       switch (this.getSettingType(key)) {
         case 'int':     return this.set_int(key, value)
         case 'boolean': return this.set_boolean(key, value)
+        case 'strv':    return this.set_strv(key, value)
         default:        return this.set_string(key, value)
       }
     }

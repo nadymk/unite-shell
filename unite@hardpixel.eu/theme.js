@@ -8,6 +8,13 @@ const THEME_DIRS = [
   GLib.build_filenamev([GLib.get_user_data_dir(), 'unite-shell/themes'])
 ]
 
+const NATIVE_ICON_NAMES = {
+  close: 'window-close-symbolic',
+  minimize: 'window-minimize-symbolic',
+  maximize: 'window-maximize-symbolic',
+  unmaximize: ['window-restore-symbolic', 'window-maximize-symbolic']
+}
+
 function fileExists(path) {
   return GLib.file_test(path, GLib.FileTest.EXISTS)
 }
@@ -55,7 +62,8 @@ export class WindowControlsTheme {
       this._gicons = {
         close:    getActionIconStates(dir, 'close'),
         minimize: getActionIconStates(dir, 'minimize'),
-        maximize: getActionIconStates(dir, 'maximize')
+        maximize: getActionIconStates(dir, 'maximize'),
+        unmaximize: getActionIconStates(dir, 'unmaximize', 'maximize')
       }
     }
 
@@ -68,6 +76,30 @@ export class WindowControlsTheme {
 
   match(gtkTheme) {
     return gtkTheme == this.name || gtkTheme.startsWith(`${this.name}-`)
+  }
+}
+
+class NativeWindowControlsTheme {
+  constructor(style = 'gtk3') {
+    this.uuid = `native-${style}`
+    this.name = 'Native'
+    this.native = true
+    this.style = style
+  }
+
+  getActionIcons() {
+    return Object.fromEntries(Object.entries(NATIVE_ICON_NAMES).map(([action, name]) => {
+      const icon = Array.isArray(name)
+        ? Gio.ThemedIcon.new_from_names(name)
+        : Gio.ThemedIcon.new(name)
+      return [action, { default: icon, hover: icon, active: icon }]
+    }))
+  }
+
+  getStyle() {
+    return GLib.build_filenamev([
+      Convenience.getPath(), 'themes', 'native', `${this.style}.css`
+    ])
   }
 }
 
@@ -97,9 +129,11 @@ export class WindowControlsThemes {
     return this.available.find(theme => theme.match(gtkTheme)) || this.default
   }
 
-  locate(btnTheme, gtkTheme) {
+  locate(btnTheme, gtkTheme, nativeStyle = 'gtk3') {
     if (btnTheme == 'auto') {
       return this.match(gtkTheme)
+    } else if (btnTheme == 'native') {
+      return new NativeWindowControlsTheme(nativeStyle)
     } else {
       return this.get(btnTheme)
     }
@@ -132,10 +166,16 @@ export class WindowControlsThemes {
   }
 }
 
-function getActionIconStates(iconsPath, action) {
+function getActionIconStates(iconsPath, action, fallbackAction = action) {
   const getGIcon = (state) => {
     const statePostfix = state ? `-${state}` : ''
-    const iconPath = GLib.build_filenamev([iconsPath, `${action}${statePostfix}.svg`])
+    let iconPath = GLib.build_filenamev([iconsPath, `${action}${statePostfix}.svg`])
+
+    if (!fileExists(iconPath)) {
+      iconPath = GLib.build_filenamev([
+        iconsPath, `${fallbackAction}${statePostfix}.svg`
+      ])
+    }
 
     return Gio.icon_new_for_string(iconPath)
   }

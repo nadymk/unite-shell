@@ -184,6 +184,18 @@ export const AppmenuLabel = GObject.registerClass(
       }
     }
 
+    setWindowControlsPlacement(placement, side) {
+      if (!this._windowControls) {
+        return
+      }
+
+      const resolved = placement == 'auto'
+        ? (side == 'left' ? 'after' : 'before')
+        : placement
+      const index = resolved == 'before' ? -1 : 0
+      this._container.set_child_at_index(this._windowControls, index)
+    }
+
     removeWindowControls() {
       if (this._windowControls?.get_parent() === this._container) {
         this._container.remove_child(this._windowControls)
@@ -340,6 +352,13 @@ export const WindowControls = GObject.registerClass(
       this._controls = new St.BoxLayout({ style_class: 'window-controls-box' })
       this.add_child(this._controls)
 
+      this._policyVisible = false
+      this._hoverVisible = false
+      this._workspaceSuppressed = false
+      this._maximized = false
+      this._maximizeButton = null
+      this._maximizeIcon = null
+
       this.add_style_class_name('window-controls')
       this.remove_style_class_name('panel-button')
     }
@@ -347,6 +366,21 @@ export const WindowControls = GObject.registerClass(
     setControlThemeParams(params) {
       this._actionIcons = params.actionIcons
       this._iconScaleWorkaround = params.iconScaleWorkaround
+      this._nativeIcons = params.nativeIcons
+      this._nativeIconStyle = params.nativeIconStyle
+    }
+
+    get content() {
+      return this._controls
+    }
+
+    restoreContent() {
+      if (this._controls.get_parent() !== this) {
+        this._controls.get_parent()?.remove_child(this._controls)
+        this.add_child(this._controls)
+      }
+
+      this._syncVisibility()
     }
 
     _addButton(action) {
@@ -354,23 +388,42 @@ export const WindowControls = GObject.registerClass(
       const bin = new St.Bin({ style_class: 'icon', x_align: pos, y_align: pos })
       const btn = new St.Button({ track_hover: true })
 
-      if (this._iconScaleWorkaround) {
+      if (this._iconScaleWorkaround || this._nativeIcons || action === 'maximize') {
         // A workaround for multi-scaling setups https://github.com/hardpixel/unite-shell/issues/106
-        const gicon = this._actionIcons[action];
+        const getGIcon = () => this._actionIcons[
+          action === 'maximize' && this._maximized ? 'unmaximize' : action
+        ]
+        const gicon = getGIcon()
         const icon = new St.Icon({
           x_align: pos,
           y_align: pos,
           gicon: gicon.default,
         })
+        if (this._nativeIcons) {
+          icon.set_icon_size(this._nativeIconStyle === 'gtk4' ? 16 : 14)
+        }
         btn.connect(
-          'notify::hover', () => void icon.set_gicon(btn.hover ? gicon.hover : gicon.default)
+          'notify::hover', () => {
+            const icons = getGIcon()
+            icon.set_gicon(btn.hover ? icons.hover : icons.default)
+          }
         )
         btn.connect(
-          'notify::pressed', () => void icon.set_gicon(btn.pressed ? gicon.active : gicon.default)
+          'notify::pressed', () => {
+            const icons = getGIcon()
+            icon.set_gicon(btn.pressed ? icons.active : icons.default)
+          }
         )
         bin.set_child(icon)
         // Add only root class name for button sizing
-        btn.add_style_class_name('window-button')
+        btn.add_style_class_name(
+          `window-button${this._nativeIcons ? ' native' : ''}`
+        )
+
+        if (action === 'maximize') {
+          this._maximizeButton = btn
+          this._maximizeIcon = icon
+        }
       } else {
         // Normal approach with CSS-based icons
         btn.add_style_class_name(`window-button ${action}`)
@@ -390,11 +443,56 @@ export const WindowControls = GObject.registerClass(
 
     addButtons(buttons) {
       this._controls.destroy_all_children()
+      this._maximizeButton = null
+      this._maximizeIcon = null
       buttons && buttons.forEach(this._addButton.bind(this))
     }
 
+    setMaximized(maximized) {
+      if (this._maximized === maximized) {
+        return
+      }
+
+      this._maximized = maximized
+
+      if (this._maximizeIcon) {
+        const icons = this._actionIcons[maximized ? 'unmaximize' : 'maximize']
+        const state = this._maximizeButton?.pressed
+          ? 'active'
+          : this._maximizeButton?.hover ? 'hover' : 'default'
+        this._maximizeIcon.set_gicon(icons[state])
+      }
+    }
+
     setVisible(visible) {
-      this.container.visible = visible
+      this._policyVisible = visible
+      this._syncVisibility()
+      Main.panel.statusArea.activities?.syncWindowControls?.()
+    }
+
+    setHoverVisible(visible) {
+      this._hoverVisible = visible
+      this._syncVisibility()
+    }
+
+    setWorkspaceSuppressed(suppressed) {
+      this._workspaceSuppressed = suppressed
+      this._syncVisibility()
+    }
+
+    get policyVisible() {
+      return this._policyVisible
+    }
+
+    get hoverVisible() {
+      return this._hoverVisible
+    }
+
+    _syncVisibility() {
+      const visible = (this._policyVisible || this._hoverVisible) &&
+        !this._workspaceSuppressed
+      this.container.visible = visible && this._controls.get_parent() === this
+      this._controls.visible = visible
     }
   }
 )

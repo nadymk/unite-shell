@@ -11,6 +11,152 @@ import * as Theme from './theme.js'
 import * as Handlers from './handlers.js'
 
 const Activities = Main.panel.statusArea.activities
+const PANEL_LAYOUT_IDS = [
+  'app-menu',
+  'workspace-switcher',
+  'window-buttons',
+  'clock',
+  'system-indicators',
+]
+const PANEL_LAYOUT_ACTORS = new Map()
+
+function getPanelLayout(settings) {
+  const entries = settings.get('panel-layout') || []
+  const parsed = []
+  const seen = new Set()
+
+  entries.forEach(entry => {
+    const [id, lane] = entry.split(':')
+    const valid = PANEL_LAYOUT_IDS.includes(id) &&
+      ['default', 'leftmost', 'left', 'center', 'right', 'rightmost'].includes(lane)
+
+    if (valid && !seen.has(id)) {
+      parsed.push({ id, lane })
+      seen.add(id)
+    }
+  })
+
+  PANEL_LAYOUT_IDS.forEach(id => {
+    if (!parsed.some(item => item.id === id)) {
+      parsed.push({ id, lane: 'default' })
+    }
+  })
+
+  return parsed
+}
+
+function getPanelPlacement(settings, id) {
+  return getPanelLayout(settings).find(item => item.id === id)?.lane || 'default'
+}
+
+function getPanelBox(lane) {
+  if (lane === 'center') return Main.panel._centerBox
+  if (['right', 'rightmost'].includes(lane)) return Main.panel._rightBox
+  return Main.panel._leftBox
+}
+
+function registerPanelLayoutActor(id, actor) {
+  PANEL_LAYOUT_ACTORS.set(id, actor)
+}
+
+function unregisterPanelLayoutActor(id, actor) {
+  if (PANEL_LAYOUT_ACTORS.get(id) === actor) {
+    PANEL_LAYOUT_ACTORS.delete(id)
+  }
+}
+
+function syncPanelLayout(settings) {
+  const layout = getPanelLayout(settings)
+
+  layout.forEach(({ id, lane }) => {
+    const actor = PANEL_LAYOUT_ACTORS.get(id)
+    if (!actor || lane === 'default') return
+
+    const panelBox = getPanelBox(lane)
+    if (actor.get_parent() !== panelBox) {
+      actor.get_parent()?.remove_child(actor)
+      panelBox.add_child(actor)
+    }
+  })
+
+  const atStart = (lane, panelBox, offset = 0) => {
+    const actors = layout
+      .filter(item => item.lane === lane)
+      .map(item => PANEL_LAYOUT_ACTORS.get(item.id))
+      .filter(Boolean)
+
+    actors.forEach((actor, index) => {
+      const target = offset + index
+      if (panelBox.get_children().indexOf(actor) !== target) {
+        panelBox.set_child_at_index(actor, target)
+      }
+    })
+
+    return offset + actors.length
+  }
+
+  let leftOffset = atStart('leftmost', Main.panel._leftBox)
+  atStart('left', Main.panel._leftBox, leftOffset)
+  atStart('center', Main.panel._centerBox)
+  atStart('right', Main.panel._rightBox)
+
+  const rightmost = layout.filter(item => item.lane === 'rightmost')
+    .map(item => PANEL_LAYOUT_ACTORS.get(item.id))
+    .filter(Boolean)
+
+  const rightChildren = Main.panel._rightBox.get_children()
+  const currentEdge = rightChildren.slice(-rightmost.length)
+  const edgeMatches = rightmost.every((actor, index) => actor === currentEdge[index])
+
+  if (!edgeMatches) {
+    rightmost.forEach(actor => {
+      Main.panel._rightBox.set_child_at_index(actor, -1)
+    })
+  }
+
+  Main.panel.queue_relayout()
+}
+
+class PanelLayoutManager extends Handlers.Feature {
+  constructor() {
+    super('panel-layout', () => true)
+  }
+
+  activate() {
+    this.settings = new Handlers.Settings()
+    this.signals = new Handlers.Signals()
+    this.timeouts = new Handlers.Timeouts()
+    this._syncTimeout = null
+
+    this.settings.connect('panel-layout', this._queueSync.bind(this))
+    const panelBoxes = [
+      Main.panel._leftBox, Main.panel._centerBox, Main.panel._rightBox,
+    ]
+    panelBoxes.forEach(panelBox => {
+      this.signals.connect(
+        panelBox, 'notify::allocation', this._queueSync.bind(this)
+      )
+    })
+
+    this._queueSync()
+  }
+
+  _queueSync() {
+    if (this._syncTimeout) return
+
+    this._syncTimeout = this.timeouts.idle(() => {
+      this._syncTimeout = null
+      syncPanelLayout(this.settings)
+    })
+  }
+
+  destroy() {
+    this.settings.disconnectAll()
+    this.signals.disconnectAll()
+    this.timeouts.removeAll()
+    this._syncTimeout = null
+  }
+}
 
 class AppmenuButton extends Handlers.Feature {
   constructor() {
@@ -24,6 +170,7 @@ class AppmenuButton extends Handlers.Feature {
     this.button   = new Buttons.AppmenuLabel()
     this.focused  = null
     this._hoverExpandTimeout = null
+    this._buttonsRevealTimeout = null
     this._titleCollapseTimeout = null
     this._layoutSyncTimeout = null
     this._titleExpanded = false
@@ -69,11 +216,15 @@ class AppmenuButton extends Handlers.Feature {
     )
 
     this.settings.connect(
-      'window-buttons-placement', this._onPositionChange.bind(this)
+      'app-menu-panel-placement', this._onPositionChange.bind(this)
     )
 
     this.settings.connect(
-      'combine-window-buttons', this._onCombinedChange.bind(this)
+      'panel-layout', this._onPositionChange.bind(this)
+    )
+
+    this.settings.connect(
+      'window-buttons-container', this._onCombinedChange.bind(this)
     )
 
     this.settings.connect(
@@ -88,6 +239,18 @@ class AppmenuButton extends Handlers.Feature {
       'compact-app-menu-threshold', this._onCompactModeChange.bind(this)
     )
 
+    this.settings.connect(
+      'reveal-window-buttons-on-hover', this._onHoverButtonsChange.bind(this)
+    )
+
+    this.settings.connect(
+      'window-buttons-hover-delay', this._onHoverButtonsChange.bind(this)
+    )
+
+    this.settings.connect(
+      'show-window-buttons', this._onHoverButtonsChange.bind(this)
+    )
+
     this.button.connect(
       'notify::hover', this._onAppMenuHover.bind(this)
     )
@@ -98,10 +261,15 @@ class AppmenuButton extends Handlers.Feature {
 
     this.button.syncPlacement = this._syncPlacement.bind(this)
     this.button.syncLayout = this._syncLayout.bind(this)
+    this.button.syncHoverButtons = this._syncHoverButtons.bind(this)
 
     Main.panel.addToStatusArea(
       'uniteAppMenu', this.button, 1, 'left'
     )
+
+    this._originalPanelParent = this.button.container.get_parent()
+    this._originalPanelIndex = this._originalPanelParent
+      .get_children().indexOf(this.button.container)
 
     this._onHideIconChange()
     this._onGreyscaleChange()
@@ -128,28 +296,17 @@ class AppmenuButton extends Handlers.Feature {
     return this.settings.get('app-menu-placement')
   }
 
+  get panelPlacement() {
+    return getPanelPlacement(this.settings, 'app-menu')
+  }
+
+  get panelSide() {
+    if (this.panelPlacement === 'default') return 'left'
+    return ['right', 'rightmost'].includes(this.panelPlacement) ? 'right' : 'left'
+  }
+
   get combined() {
-    return this.settings.get('combine-window-buttons')
-  }
-
-  get buttonsPosition() {
-    return this.settings.get('window-buttons-position')
-  }
-
-  get buttonsPlacement() {
-    return this.settings.get('window-buttons-placement')
-  }
-
-  get combinedSide() {
-    const sides = { first: 'left', last: 'right', auto: this.buttonsPosition }
-    return sides[this.buttonsPlacement] || this.buttonsPlacement
-  }
-
-  get combinedIndex() {
-    if (this.buttonsPlacement == 'first') return 0
-    if (this.buttonsPlacement == 'last') return -1
-
-    return null
+    return this.settings.get('window-buttons-container') == 'appmenu'
   }
 
   get compactMode() {
@@ -166,6 +323,18 @@ class AppmenuButton extends Handlers.Feature {
 
   get compactThreshold() {
     return Math.max(0, this.settings.get('compact-app-menu-threshold'))
+  }
+
+  get revealButtonsOnHover() {
+    return this.settings.get('reveal-window-buttons-on-hover')
+  }
+
+  get buttonsHoverDelay() {
+    return Math.max(0, this.settings.get('window-buttons-hover-delay'))
+  }
+
+  get buttonsMode() {
+    return this.settings.get('show-window-buttons')
   }
 
   setLabelMaxWidth(width) {
@@ -202,16 +371,20 @@ class AppmenuButton extends Handlers.Feature {
     this.button.setReactive(visible && !loading)
     this.button.setVisible(visible)
     this._syncCompactMode()
+    this._syncHoverButtons()
   }
 
   _onAppMenuHover(appMenu) {
     if (!appMenu.get_hover()) {
       this._cancelHoverExpand()
+      this._cancelButtonsReveal()
+      this._setButtonsHoverVisible(false)
       this._queueTitleCollapse()
       return
     }
 
     this._cancelTitleCollapse()
+    this._syncHoverButtons()
 
     if (this.adaptiveMode && !this._fitsFullWidth()) {
       this._cancelHoverExpand()
@@ -257,8 +430,15 @@ class AppmenuButton extends Handlers.Feature {
     this._syncCompactMode()
   }
 
+  _onHoverButtonsChange() {
+    this._cancelButtonsReveal()
+    this._setButtonsHoverVisible(false)
+    this._syncHoverButtons()
+  }
+
   _onCombinedChange() {
     this._cancelHoverExpand()
+    this._onHoverButtonsChange()
     this._collapseTitle()
     this._onHideIconChange()
     this._onMaxWidthChange()
@@ -270,65 +450,48 @@ class AppmenuButton extends Handlers.Feature {
     // Always position that wrapper; moving the button itself detaches it from
     // the actor whose visibility GNOME Shell manages.
     const container = this.button.container
-    const leftBox = Main.panel._leftBox
     const controls = this._acceptWindowControls
       ? Main.panel.statusArea.uniteWindowControls?.container
       : null
+
+    if (this.panelPlacement === 'default') {
+      unregisterPanelLayoutActor('app-menu', container)
+
+      if (this.combined && controls) {
+        this.button.setWindowControls(controls)
+        this.button.setWindowControlsPlacement(this.placement, 'left')
+      } else if (!this.combined) {
+        this.button.removeWindowControls()
+      }
+
+      if (container.get_parent() !== this._originalPanelParent) {
+        container.get_parent()?.remove_child(container)
+        this._originalPanelParent.add_child(container)
+      }
+
+      this._originalPanelParent.set_child_at_index(
+        container, this._originalPanelIndex
+      )
+      Main.panel.queue_relayout()
+      return
+    }
 
     if (this.combined) {
       if (controls) {
         this.button.setWindowControls(controls)
       }
 
-      const panelBox = this.combinedSide == 'right'
-        ? Main.panel._rightBox
-        : Main.panel._leftBox
+      this.button.setWindowControlsPlacement(this.placement, this.panelSide)
 
-      if (container.get_parent() !== panelBox) {
-        container.get_parent()?.remove_child(container)
-        panelBox.add_child(container)
-      }
-
-      if (this.combinedIndex != null) {
-        panelBox.set_child_at_index(container, this.combinedIndex)
-      } else {
-        const sibling = this.combinedSide == 'right'
-          ? Main.panel.statusArea.quickSettings
-          : Main.panel.statusArea.activities
-        const siblingActor = sibling.get_parent()
-
-        if (siblingActor?.get_parent() === panelBox) {
-          panelBox.set_child_below_sibling(container, siblingActor)
-        } else {
-          panelBox.set_child_at_index(container, -1)
-        }
-      }
-
+      registerPanelLayoutActor('app-menu', container)
+      syncPanelLayout(this.settings)
       return
     }
 
     this.button.removeWindowControls()
 
-    if (container.get_parent() !== leftBox) {
-      container.get_parent()?.remove_child(container)
-      leftBox.add_child(container)
-    }
-
-    if (!controls || controls.get_parent() !== leftBox || this.placement == 'auto') {
-      leftBox.set_child_at_index(container, 1)
-      return
-    }
-
-    const children = leftBox.get_children()
-    const controlsIndex = children.indexOf(controls)
-
-    if (controlsIndex < 0) {
-      leftBox.set_child_at_index(container, 1)
-      return
-    }
-
-    const index = this.placement == 'before' ? controlsIndex : controlsIndex + 1
-    leftBox.set_child_at_index(container, index)
+    registerPanelLayoutActor('app-menu', container)
+    syncPanelLayout(this.settings)
   }
 
   _syncPlacement() {
@@ -339,6 +502,48 @@ class AppmenuButton extends Handlers.Feature {
 
   _syncLayout() {
     this._syncCompactMode()
+  }
+
+  _shouldRevealButtons() {
+    const controls = Main.panel.statusArea.uniteWindowControls
+
+    return controls && this.combined && this.revealButtonsOnHover &&
+      this.buttonsMode != 'always' && !controls.policyVisible &&
+      this.button.get_hover() && global.unite.panelWindow != null
+  }
+
+  _syncHoverButtons() {
+    const controls = Main.panel.statusArea.uniteWindowControls
+
+    if (!this._shouldRevealButtons()) {
+      this._cancelButtonsReveal()
+      this._setButtonsHoverVisible(false)
+      return
+    }
+
+    if (controls.hoverVisible || this._buttonsRevealTimeout) {
+      return
+    }
+
+    this._buttonsRevealTimeout = this.timeouts.timeout(this.buttonsHoverDelay, () => {
+      this._buttonsRevealTimeout = null
+
+      if (this._shouldRevealButtons()) {
+        this._setButtonsHoverVisible(true)
+      }
+    })
+  }
+
+  _setButtonsHoverVisible(visible) {
+    const controls = Main.panel.statusArea.uniteWindowControls
+
+    if (!controls || controls.hoverVisible == visible) {
+      return
+    }
+
+    controls.setHoverVisible(visible)
+    Main.panel.queue_relayout()
+    this._queueSyncLayout()
   }
 
   _queueSyncLayout() {
@@ -356,6 +561,13 @@ class AppmenuButton extends Handlers.Feature {
     if (this._hoverExpandTimeout) {
       this.timeouts.remove(this._hoverExpandTimeout)
       this._hoverExpandTimeout = null
+    }
+  }
+
+  _cancelButtonsReveal() {
+    if (this._buttonsRevealTimeout) {
+      this.timeouts.remove(this._buttonsRevealTimeout)
+      this._buttonsRevealTimeout = null
     }
   }
 
@@ -381,7 +593,8 @@ class AppmenuButton extends Handlers.Feature {
     const container = this.button.container
     const panelBox = container.get_parent()
 
-    if (panelBox !== Main.panel._leftBox && panelBox !== Main.panel._rightBox) {
+    if (![Main.panel._leftBox, Main.panel._centerBox, Main.panel._rightBox]
+      .includes(panelBox)) {
       return true
     }
 
@@ -402,9 +615,11 @@ class AppmenuButton extends Handlers.Feature {
     const panelBox = container.get_parent()
     const panelWidth = Main.panel.get_width()
     const centerWidth = Main.panel._centerBox.get_width()
-    const sideCapacity = Math.max(0, Math.floor((panelWidth - centerWidth) / 2))
+    const capacity = panelBox === Main.panel._centerBox
+      ? centerWidth
+      : Math.max(0, Math.floor((panelWidth - centerWidth) / 2))
 
-    return sideCapacity - panelBox.get_children().reduce((width, child) => {
+    return capacity - panelBox.get_children().reduce((width, child) => {
       return child == container ? width : width + child.get_width()
     }, 0)
   }
@@ -460,6 +675,8 @@ class AppmenuButton extends Handlers.Feature {
     global.unite.windowManager.removePanelStateListener(this._panelStateListener)
     this._panelStateListener = null
     this._cancelHoverExpand()
+    this._cancelButtonsReveal()
+    this._setButtonsHoverVisible(false)
     this._cancelTitleCollapse()
     this._titleExpanded = false
     this._acceptWindowControls = false
@@ -467,6 +684,7 @@ class AppmenuButton extends Handlers.Feature {
     this.signals.disconnectAll()
     this.settings.disconnectAll()
 
+    unregisterPanelLayoutActor('app-menu', this.button.container)
     this.button.removeWindowControls()
     Main.panel.statusArea.uniteWindowControls?.syncPlacement?.(true)
     this.button.destroy()
@@ -475,7 +693,10 @@ class AppmenuButton extends Handlers.Feature {
 
 class WindowButtons extends Handlers.Feature {
   constructor() {
-    super('show-window-buttons', setting => setting != 'never')
+    super(
+      ['show-window-buttons', 'window-buttons-container'],
+      (setting, container) => setting != 'never' || container != 'separate'
+    )
   }
 
   activate() {
@@ -511,11 +732,27 @@ class WindowButtons extends Handlers.Feature {
     )
 
     this.settings.connect(
-      'combine-window-buttons', this._onPositionChange.bind(this)
+      'panel-layout', this._onPositionChange.bind(this)
+    )
+
+    this.settings.connect(
+      'window-buttons-container', this._onPositionChange.bind(this)
+    )
+
+    this.settings.connect(
+      'window-buttons-order', this._onLayoutChange.bind(this)
     )
 
     this.settings.connect(
       'window-buttons-theme', this._onThemeChange.bind(this)
+    )
+
+    this.settings.connect(
+      'native-icon-style', this._onThemeChange.bind(this)
+    )
+
+    this.settings.connect(
+      'icon-theme', this._onNativeIconThemeChange.bind(this)
     )
 
     this.settings.connect(
@@ -532,8 +769,8 @@ class WindowButtons extends Handlers.Feature {
 
     this.controls.syncPlacement = forceStandalone => this._onPositionChange(forceStandalone)
 
-    this._onPositionChange()
     this._onThemeChange()
+    this._onPositionChange()
     this._syncVisible()
     Main.panel.statusArea.uniteAppMenu?.syncPlacement?.()
   }
@@ -546,16 +783,28 @@ class WindowButtons extends Handlers.Feature {
     return this.settings.get('window-buttons-theme')
   }
 
+  get nativeIconStyle() {
+    return this.settings.get('native-icon-style')
+  }
+
   get position() {
     return this.settings.get('window-buttons-position')
   }
 
   get placement() {
-    return this.settings.get('window-buttons-placement')
+    return getPanelPlacement(this.settings, 'window-buttons')
   }
 
   get combined() {
-    return this.settings.get('combine-window-buttons')
+    return this.settings.get('window-buttons-container') == 'appmenu'
+  }
+
+  get workspaceCombined() {
+    return this.settings.get('window-buttons-container') == 'workspace'
+  }
+
+  get buttonOrder() {
+    return this.settings.get('window-buttons-order')
   }
 
   get iconScaleWorkaround() {
@@ -563,15 +812,14 @@ class WindowButtons extends Handlers.Feature {
   }
 
   get side() {
-    const sides = { first: 'left', last: 'right', auto: this.position }
-    return sides[this.placement] || this.placement
+    if (this.placement === 'default') return this.position
+    if (this.placement === 'leftmost') return 'left'
+    if (this.placement === 'rightmost') return 'right'
+    return this.placement
   }
 
   get index() {
-    if (this.placement == 'first') return 0
-    if (this.placement == 'last') return -1
-
-    return null
+    return this.placement === 'default' ? null : 0
   }
 
   get sibling() {
@@ -583,18 +831,18 @@ class WindowButtons extends Handlers.Feature {
   }
 
   get container() {
-    if (this.side == 'left') {
-      return Main.panel._leftBox
-    } else {
-      return Main.panel._rightBox
-    }
+    return getPanelBox(this.side)
   }
 
   _onLayoutChange() {
-    const buttons = this.settings.get('window-buttons-layout')
+    let buttons
 
-    if (this.side != this.position) {
-      buttons.reverse()
+    if (this.buttonOrder == 'left') {
+      buttons = ['close', 'maximize', 'minimize']
+    } else if (this.buttonOrder == 'right') {
+      buttons = ['minimize', 'maximize', 'close']
+    } else {
+      buttons = this.settings.get('window-buttons-layout')
     }
 
     this.controls.addButtons(buttons)
@@ -605,24 +853,39 @@ class WindowButtons extends Handlers.Feature {
     const controls  = this.controls.container
     const container = controls.get_parent()
     const appmenu = Main.panel.statusArea.uniteAppMenu
+    const workspace = Main.panel.statusArea.activities
+
+    appmenu?.removeWindowControls?.()
+    workspace?.removeWindowControls?.()
 
     controls.add_style_class_name('window-controls-container')
 
     if (this.combined && appmenu && !forceStandalone) {
+      unregisterPanelLayoutActor('window-buttons', controls)
+      this.controls.restoreContent()
       appmenu.setWindowControls(controls)
       appmenu.syncPlacement?.()
       this._onLayoutChange()
       return
     }
 
-    if (container !== this.container) {
-      container?.remove_child(controls)
-      this.container.add_child(controls)
+    if (this.workspaceCombined && workspace?.setWindowControls) {
+      unregisterPanelLayoutActor('window-buttons', controls)
+      workspace.setWindowControls(this.controls.content)
+      this._onLayoutChange()
+      return
     }
 
-    if (this.index != null) {
-      this.container.set_child_at_index(controls, this.index)
-    } else {
+    this.controls.restoreContent()
+
+    if (this.placement === 'default') {
+      unregisterPanelLayoutActor('window-buttons', controls)
+
+      if (container !== this.container) {
+        container?.remove_child(controls)
+        this.container.add_child(controls)
+      }
+
       const sibling = this.sibling.get_parent()
 
       if (sibling?.get_parent() === this.container) {
@@ -630,6 +893,9 @@ class WindowButtons extends Handlers.Feature {
       } else {
         this.container.set_child_at_index(controls, -1)
       }
+    } else {
+      registerPanelLayoutActor('window-buttons', controls)
+      syncPanelLayout(this.settings)
     }
 
     Main.panel.statusArea.uniteAppMenu?.syncPlacement?.()
@@ -638,18 +904,22 @@ class WindowButtons extends Handlers.Feature {
 
   _onThemeChange() {
     const previousThemeUuid = this.theme.uuid
+    const previousThemeNative = this.theme.native || false
     this.controls.remove_style_class_name(this.theme.uuid)
 
-    this.theme = this.themes.locate(this.themeName, this.gtkTheme)
+    this.theme = this.themes.locate(
+      this.themeName, this.gtkTheme, this.nativeIconStyle
+    )
     this.styles.addShellStyle('windowButtons', this.theme.getStyle(this.isDark))
 
     this.controls.add_style_class_name(this.theme.uuid)
 
-    if (this.iconScaleWorkaround) {
-      // For workaround, we need to re-create elements on theme change
-      const shouldUpdateTheme = this.theme.uuid !== previousThemeUuid
-      this._updateIconScaleWorkaround(shouldUpdateTheme)
-    }
+    // Icon actors need to be recreated when entering or changing a native
+    // style; CSS-only themes update without rebuilding unless the scale
+    // workaround is enabled.
+    const shouldUpdateTheme = this.theme.uuid !== previousThemeUuid &&
+      (this.iconScaleWorkaround || previousThemeNative || this.theme.native)
+    this._updateIconScaleWorkaround(shouldUpdateTheme)
   }
 
   _onPanelStyleChange() {
@@ -668,23 +938,35 @@ class WindowButtons extends Handlers.Feature {
     }
   }
 
+  _onNativeIconThemeChange() {
+    if (this.themeName == 'native') {
+      this._onThemeChange()
+      this._onLayoutChange()
+    }
+  }
+
   _syncVisible() {
     const focusApp = global.unite.panelApp
 
     if (focusApp && focusApp.state == Shell.AppState.RUNNING) {
       const win = global.unite.panelWindow
+      this.controls.setMaximized(win?.maximized || false)
       this.controls.setVisible(win && win.showButtons)
     } else {
       this.controls.setVisible(false)
     }
 
     Main.panel.statusArea.uniteAppMenu?.syncLayout?.()
+    Main.panel.statusArea.uniteAppMenu?.syncHoverButtons?.()
+    Main.panel.statusArea.activities?.syncWindowControls?.()
   }
 
   _updateIconScaleWorkaround(forceLayoutChange = false) {
     this.controls.setControlThemeParams({
       actionIcons: this.theme.getActionIcons(this.isDark),
       iconScaleWorkaround: this.iconScaleWorkaround,
+      nativeIcons: this.theme.native || false,
+      nativeIconStyle: this.nativeIconStyle,
     })
 
 
@@ -700,7 +982,11 @@ class WindowButtons extends Handlers.Feature {
     this.settings.disconnectAll()
     this.styles.removeAll()
 
+    unregisterPanelLayoutActor('window-buttons', this.controls.container)
     Main.panel.statusArea.uniteAppMenu?.removeWindowControls?.()
+    Main.panel.statusArea.activities?.removeWindowControls?.()
+    this.controls.restoreContent()
+    this.controls.setHoverVisible(false)
 
     if (Main.panel.statusArea.uniteWindowControls === this.controls) {
       delete Main.panel.statusArea.uniteWindowControls
@@ -727,7 +1013,7 @@ class ExtendLeftBox extends Handlers.Feature {
     )
 
     this.settings.connect(
-      'combine-window-buttons', this._syncEnabled.bind(this)
+      'window-buttons-container', this._syncEnabled.bind(this)
     )
 
     this._syncEnabled()
@@ -735,7 +1021,7 @@ class ExtendLeftBox extends Handlers.Feature {
 
   get enabled() {
     return this.settings.get('extend-left-box') ||
-      this.settings.get('combine-window-buttons')
+      this.settings.get('window-buttons-container') == 'appmenu'
   }
 
   _syncEnabled() {
@@ -824,52 +1110,89 @@ class WorkspaceSwitcherPosition extends Handlers.Feature {
 
   activate() {
     this.settings = new Handlers.Settings()
+    this.signals = new Handlers.Signals()
+    this.timeouts = new Handlers.Timeouts()
+    this._overviewActive = Main.overview.visibleTarget
+    this._workspaceSwitchActive = false
+    this._overviewHideTimeout = null
+    this._workspaceSwitchTimeout = null
+    this._showingWorkspace = null
     this.actor = Activities.container
+    this.workspaceChildren = Activities.get_children()
+    this.workspaceHost = new St.BoxLayout({ clip_to_allocation: true })
+    this.workspaceChildren.forEach(child => {
+      Activities.remove_child(child)
+      this.workspaceHost.add_child(child)
+    })
+    Activities.add_child(this.workspaceHost)
+    Activities.workspaceHost = this.workspaceHost
+    Activities.workspaceContent = this.workspaceChildren[0]
     this.originalParent = this.actor.get_parent()
     this.originalIndex = this.originalParent.get_children().indexOf(this.actor)
     this.syncPlacement = this._onPositionChange.bind(this)
     Activities.syncPlacement = this.syncPlacement
+    Activities.setWindowControls = this._setWindowControls.bind(this)
+    Activities.removeWindowControls = this._removeWindowControls.bind(this)
+    Activities.syncWindowControls = this._syncWindowControls.bind(this)
+
+    this.signals.connect(
+      Main.overview, 'showing', this._onOverviewShowing.bind(this)
+    )
+
+    this.signals.connect(
+      Main.overview, 'hiding', this._onOverviewHiding.bind(this)
+    )
+
+    this.signals.connect(
+      global.window_manager, 'switch-workspace', this._onWorkspaceSwitch.bind(this)
+    )
+
+    const swipeTracker = Main.wm._workspaceAnimation?._swipeTracker
+    if (swipeTracker) {
+      this.signals.connect(
+        swipeTracker, 'begin', this._onWorkspaceSwitch.bind(this)
+      )
+      this.signals.connect(
+        swipeTracker, 'end', this._waitForWorkspaceAnimation.bind(this)
+      )
+    }
 
     this.settings.connect(
       'workspace-switcher-placement', this.syncPlacement
     )
 
+    this.settings.connect(
+      'panel-layout', this.syncPlacement
+    )
+
     this._onPositionChange()
+    Main.panel.statusArea.uniteWindowControls?.syncPlacement?.()
   }
 
   get placement() {
-    return this.settings.get('workspace-switcher-placement')
+    return getPanelPlacement(this.settings, 'workspace-switcher')
   }
 
-  get panelBox() {
-    return ['first', 'left'].includes(this.placement)
-      ? Main.panel._leftBox
-      : Main.panel._rightBox
+  get animationDuration() {
+    return Math.max(0, this.settings.get('workspace-buttons-animation-duration'))
   }
 
-  get index() {
-    return ['first', 'right'].includes(this.placement) ? 0 : -1
+  get animationDirection() {
+    return this.settings.get('workspace-buttons-animation-direction')
   }
 
   _onPositionChange() {
-    const parent = this.actor.get_parent()
-
-    if (parent !== this.panelBox) {
-      parent?.remove_child(this.actor)
-      this.panelBox.add_child(this.actor)
+    if (this.placement === 'default') {
+      unregisterPanelLayoutActor('workspace-switcher', this.actor)
+      this._restoreOriginalPosition()
+      return
     }
 
-    this.panelBox.set_child_at_index(this.actor, this.index)
-    Main.panel.queue_relayout()
+    registerPanelLayoutActor('workspace-switcher', this.actor)
+    syncPanelLayout(this.settings)
   }
 
-  destroy() {
-    this.settings.disconnectAll()
-
-    if (Activities.syncPlacement === this.syncPlacement) {
-      delete Activities.syncPlacement
-    }
-
+  _restoreOriginalPosition() {
     const parent = this.actor.get_parent()
 
     if (parent !== this.originalParent) {
@@ -879,6 +1202,231 @@ class WorkspaceSwitcherPosition extends Handlers.Feature {
 
     this.originalParent.set_child_at_index(this.actor, this.originalIndex)
     Main.panel.queue_relayout()
+  }
+
+  _setWindowControls(controls) {
+    if (this.controls === controls) {
+      return
+    }
+
+    this._removeWindowControls()
+    controls.get_parent()?.remove_child(controls)
+    this.workspaceHost.add_child(controls)
+    this.controls = controls
+    this._syncWindowControls()
+  }
+
+  _removeWindowControls() {
+    if (!this.controls) {
+      return
+    }
+
+    Main.panel.statusArea.uniteWindowControls?.setHoverVisible(false)
+    Main.panel.statusArea.uniteWindowControls?.setWorkspaceSuppressed(false)
+    this.controls.get_parent()?.remove_child(this.controls)
+    this.controls = null
+    this._setWorkspaceContentVisible(true)
+    Activities._clickGesture?.set_enabled(true)
+  }
+
+  _setWorkspaceContentVisible(visible) {
+    this.workspaceHost.get_children().forEach(child => {
+      if (child !== this.controls) {
+        child.visible = visible
+      }
+    })
+  }
+
+  _onOverviewShowing() {
+    if (this._overviewHideTimeout) {
+      this.timeouts.remove(this._overviewHideTimeout)
+      this._overviewHideTimeout = null
+    }
+
+    this._overviewActive = true
+    this._syncWindowControls()
+  }
+
+  _onOverviewHiding() {
+    if (this._overviewHideTimeout) {
+      this.timeouts.remove(this._overviewHideTimeout)
+    }
+
+    this._overviewHideTimeout = this.timeouts.timeout(300, () => {
+      this._overviewHideTimeout = null
+      this._overviewActive = false
+      this._syncWindowControls()
+    })
+  }
+
+  _onWorkspaceSwitch() {
+    this._workspaceSwitchActive = true
+    this._syncWindowControls()
+    this._waitForWorkspaceAnimation()
+  }
+
+  _waitForWorkspaceAnimation() {
+    if (this._workspaceSwitchTimeout) {
+      return
+    }
+
+    this._workspaceSwitchTimeout = this.timeouts.interval(16, () => {
+      const animation = Main.wm._workspaceAnimation
+      const inProgress = Main.wm._switchInProgress || animation?._switchData != null
+
+      if (inProgress) {
+        return true
+      }
+
+      this._workspaceSwitchTimeout = null
+      this._workspaceSwitchActive = false
+      this._syncWindowControls()
+      return false
+    })
+  }
+
+  _slideControlsIn() {
+    if (!this.controls) {
+      return
+    }
+
+    this.controls.remove_all_transitions()
+    const panelHeight = this.workspaceHost.height || Main.panel.height
+    const offset = this.animationDirection == 'top' ? -panelHeight : panelHeight
+    this.controls.set({
+      opacity: 0,
+      translation_y: offset,
+    })
+    this.controls.ease({
+      duration: this.animationDuration,
+      mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+      opacity: 255,
+      translation_y: 0,
+    })
+  }
+
+  _syncWindowControls() {
+    if (!this.controls) {
+      return
+    }
+
+    const windowControls = Main.panel.statusArea.uniteWindowControls
+    const showWorkspace = this._overviewActive || this._workspaceSwitchActive ||
+      !windowControls?.policyVisible
+
+    const wasShowingWorkspace = this._showingWorkspace
+    this._showingWorkspace = showWorkspace
+    this._setWorkspaceContentVisible(showWorkspace)
+    windowControls?.setWorkspaceSuppressed(showWorkspace)
+
+    if (showWorkspace) {
+      this.controls.remove_all_transitions()
+      this.controls.set({ opacity: 255, translation_y: 0 })
+    } else if (wasShowingWorkspace === true) {
+      this._slideControlsIn()
+    }
+
+    Activities._clickGesture?.set_enabled(showWorkspace)
+    Main.panel.queue_relayout()
+  }
+
+  destroy() {
+    this.settings.disconnectAll()
+    this.signals.disconnectAll()
+    this.timeouts.removeAll()
+    unregisterPanelLayoutActor('workspace-switcher', this.actor)
+    this._removeWindowControls()
+
+    if (Activities.syncPlacement === this.syncPlacement) {
+      delete Activities.syncPlacement
+    }
+
+    delete Activities.setWindowControls
+    delete Activities.removeWindowControls
+    delete Activities.syncWindowControls
+    delete Activities.workspaceHost
+    delete Activities.workspaceContent
+
+    Activities.remove_child(this.workspaceHost)
+    this.workspaceHost.get_children().forEach(child => {
+      this.workspaceHost.remove_child(child)
+      Activities.add_child(child)
+    })
+    this.workspaceHost.destroy()
+
+    this._restoreOriginalPosition()
+  }
+}
+
+class PanelItemPosition extends Handlers.Feature {
+  constructor(setting, layoutId) {
+    super(setting, () => true)
+    this.setting = setting
+    this.layoutId = layoutId
+  }
+
+  activate() {
+    this.settings = new Handlers.Settings()
+    this.actor = this.getActor().container
+    this.originalParent = this.actor.get_parent()
+    this.originalIndex = this.originalParent.get_children().indexOf(this.actor)
+
+    this.settings.connect(this.setting, this._onPositionChange.bind(this))
+    this.settings.connect('panel-layout', this._onPositionChange.bind(this))
+    this._onPositionChange()
+  }
+
+  get placement() {
+    return getPanelPlacement(this.settings, this.layoutId)
+  }
+
+  _onPositionChange() {
+    if (this.placement === 'default') {
+      unregisterPanelLayoutActor(this.layoutId, this.actor)
+      this._restoreOriginalPosition()
+      return
+    }
+
+    registerPanelLayoutActor(this.layoutId, this.actor)
+    syncPanelLayout(this.settings)
+  }
+
+  _restoreOriginalPosition() {
+    const parent = this.actor.get_parent()
+
+    if (parent !== this.originalParent) {
+      parent?.remove_child(this.actor)
+      this.originalParent.add_child(this.actor)
+    }
+
+    this.originalParent.set_child_at_index(this.actor, this.originalIndex)
+    Main.panel.queue_relayout()
+  }
+
+  destroy() {
+    this.settings.disconnectAll()
+    unregisterPanelLayoutActor(this.layoutId, this.actor)
+    this._restoreOriginalPosition()
+  }
+}
+
+class ClockPosition extends PanelItemPosition {
+  constructor() {
+    super('clock-placement', 'clock')
+  }
+
+  getActor() {
+    return Main.panel.statusArea.dateMenu
+  }
+}
+
+class SystemIndicatorsPosition extends PanelItemPosition {
+  constructor() {
+    super('system-indicators-placement', 'system-indicators')
+  }
+
+  getActor() {
+    return Main.panel.statusArea.quickSettings
   }
 }
 
@@ -906,6 +1454,10 @@ class ActivitiesButton extends Handlers.Feature {
       'show-desktop-name', this._syncVisible.bind(this)
     )
 
+    this.settings.connect(
+      'window-buttons-container', this._syncVisible.bind(this)
+    )
+
     this._syncVisible()
   }
 
@@ -917,10 +1469,20 @@ class ActivitiesButton extends Handlers.Feature {
     return this.settings.get('show-desktop-name')
   }
 
+  get hostsWindowButtons() {
+    return this.settings.get('window-buttons-container') == 'workspace'
+  }
+
   _syncVisible() {
     const button   = Activities.container
     const overview = Main.overview.visibleTarget
     const focusApp = global.unite.panelApp
+
+    if (this.hostsWindowButtons) {
+      button.show()
+      Activities.syncWindowControls?.()
+      return
+    }
 
     if (this.hideButton == 'always') {
       return button.hide()
@@ -957,18 +1519,23 @@ class ActivitiesText extends Handlers.Feature {
     this.label = new St.Label({ y_align: Clutter.ActorAlign.CENTER })
     this.label.set_text(Activities.get_accessible_name())
 
-    this.switcher = Activities.get_first_child()
-    Activities.remove_child(this.switcher)
-
-    Activities.add_child(this.label)
+    this.switcher = Activities.workspaceContent || Activities.get_first_child()
+    this.contentHost = Activities.workspaceHost || Activities
+    this.contentHost.remove_child(this.switcher)
+    this.contentHost.add_child(this.label)
+    Activities.workspaceContent = this.label
+    Activities.syncWindowControls?.()
   }
 
   destroy() {
-    Activities.remove_child(this.label)
+    this.contentHost.remove_child(this.label)
     this.label.destroy()
 
-    Activities.add_child(this.switcher)
+    this.contentHost.add_child(this.switcher)
+    Activities.workspaceContent = this.switcher
+    Activities.syncWindowControls?.()
     this.switcher = null
+    this.contentHost = null
   }
 }
 
@@ -1190,10 +1757,13 @@ export const PanelManager = GObject.registerClass(
     _init() {
       this.features = new Handlers.Features()
 
+      this.features.add(PanelLayoutManager)
       this.features.add(AppmenuButton)
       this.features.add(WindowButtons)
       this.features.add(ExtendLeftBox)
       this.features.add(WorkspaceSwitcherPosition)
+      this.features.add(ClockPosition)
+      this.features.add(SystemIndicatorsPosition)
       this.features.add(ActivitiesButton)
       this.features.add(ActivitiesText)
       this.features.add(DesktopName)

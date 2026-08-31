@@ -11,7 +11,7 @@ window .windowhandle:not(.selection-mode) {
 
 window headerbar > box.right,
 window .titlebar > box.right {
-  margin: 0 -200px 0 0;
+  margin: 0 -10000px 0 10000px;
   opacity: 0;
 }
 

@@ -1,0 +1,17 @@
+.window-button.native {
+  border-radius: 3px;
+  padding: 3px 5px;
+}
+
+.window-button.native:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.window-button.native:active {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+.window-button.native .icon {
+  width: 14px;
+  height: 14px;
+}

@@ -2,8 +2,9 @@
   margin-left: -6px;
 }
 
-.maximized headerbar windowcontrols.start {
-  margin: 0 0 0 -200px;
+.maximized headerbar windowcontrols.start,
+.maximized headerbar windowcontrols.start > button {
+  margin: 0 10000px 0 -10000px;
   opacity: 0;
 }
 

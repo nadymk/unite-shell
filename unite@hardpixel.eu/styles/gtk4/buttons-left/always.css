@@ -2,8 +2,9 @@ window headerbar windowhandle {
   margin-left: -6px;
 }
 
-window headerbar windowcontrols.start {
-  margin: 0 0 0 -200px;
+window headerbar windowcontrols.start,
+window headerbar windowcontrols.start > button {
+  margin: 0 10000px 0 -10000px;
   opacity: 0;
 }
 

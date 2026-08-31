@@ -11,6 +11,7 @@ const IF_PREFS = Convenience.getInterface()
 
 const GTK_VERSIONS = [3, 4]
 const USER_CONFIGS = GLib.get_user_config_dir()
+const SNAP_USER_DATA = GLib.build_filenamev([GLib.get_home_dir(), 'snap'])
 
 function isAbsPath(value) {
   return value.toString().startsWith('/')
@@ -36,6 +37,62 @@ function userStylesPath(version) {
   return GLib.build_filenamev([USER_CONFIGS, `gtk-${version}.0`, 'gtk.css'])
 }
 
+function snapStylesPaths(version) {
+  const paths = []
+  const snapRoot = Gio.file_new_for_path(SNAP_USER_DATA)
+
+  try {
+    const snaps = snapRoot.enumerate_children(
+      'standard::name,standard::type',
+      Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
+      null
+    )
+    let snap
+
+    while ((snap = snaps.next_file(null))) {
+      if (snap.get_file_type() !== Gio.FileType.DIRECTORY) {
+        continue
+      }
+
+      const snapDir = snapRoot.get_child(snap.get_name())
+      const revisions = snapDir.enumerate_children(
+        'standard::name,standard::type',
+        Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
+        null
+      )
+      let revision
+
+      while ((revision = revisions.next_file(null))) {
+        const name = revision.get_name()
+
+        if (revision.get_file_type() === Gio.FileType.DIRECTORY &&
+            /^(?:[0-9]+|x[0-9]+)$/.test(name)) {
+          paths.push(GLib.build_filenamev([
+            snapDir.get_path(), name, '.config', `gtk-${version}.0`, 'gtk.css'
+          ]))
+        }
+      }
+
+      revisions.close(null)
+    }
+
+    snaps.close(null)
+  } catch (error) {
+    if (!error.matches?.(Gio.io_error_quark(), Gio.IOErrorEnum.NOT_FOUND)) {
+      console.warn('[Unite] Failed to inspect Snap user data', error)
+    }
+  }
+
+  return paths
+}
+
+function gtkStylesPaths(version) {
+  const paths = snapStylesPaths(version)
+    .filter(path => !GLib.file_test(path, GLib.FileTest.IS_SYMLINK))
+
+  return [userStylesPath(version), ...paths]
+}
+
 function fileExists(path) {
   return GLib.file_test(path, GLib.FileTest.EXISTS)
 }
@@ -53,10 +110,34 @@ function getFileContents(path) {
     const decoder  = new TextDecoder('utf-8')
     const contents = GLib.file_get_contents(path)
 
-    return decoder.decode(contents[1])
+    return decoder.decode(contents[1]).replace(/\0+$/, '')
   } else {
     return ''
   }
+}
+
+function getStylesheetContents(path, visited = new Set()) {
+  if (visited.has(path)) {
+    return ''
+  }
+
+  visited.add(path)
+
+  const dirname = GLib.path_get_dirname(path)
+  const contents = getFileContents(path)
+  const imports = /@import\s+(?:url\(\s*)?["']([^"']+)["']\s*\)?\s*;/g
+
+  return contents.replace(imports, (statement, imported) => {
+    if (/^[a-z]+:/i.test(imported)) {
+      return statement
+    }
+
+    const importedPath = GLib.path_is_absolute(imported)
+      ? imported
+      : GLib.build_filenamev([dirname, imported])
+
+    return getStylesheetContents(importedPath, visited)
+  })
 }
 
 function setFileContents(path, contents) {
@@ -70,11 +151,15 @@ function setFileContents(path, contents) {
 
 export function resetGtkStyles() {
   GTK_VERSIONS.forEach(version => {
-    const filepath = userStylesPath(version)
-    let style = getFileContents(filepath)
+    gtkStylesPaths(version).forEach(filepath => {
+      if (!fileExists(filepath)) {
+        return
+      }
 
-    style = style.replace(/\/\* UNITE ([\s\S]*?) UNITE \*\/\n/g, '')
-    setFileContents(filepath, style)
+      const style = getFileContents(filepath)
+        .replace(/\/\* UNITE ([\s\S]*?) UNITE \*\/\n/g, '')
+      setFileContents(filepath, style)
+    })
   })
 }
 
@@ -293,13 +378,16 @@ export class Features {
     const feature = new klass()
     this.features.push(feature)
 
-    const setting = feature._settingsKey
+    const settings = Array.isArray(feature._settingsKey)
+      ? feature._settingsKey
+      : [feature._settingsKey]
     const checkCb = feature._checkActive
 
     feature.activated = false
 
     const isActive = () => {
-      return checkCb.call(null, this.settings.get(setting))
+      const values = settings.map(setting => this.settings.get(setting))
+      return checkCb.call(null, ...values)
     }
 
     const onChange = () => {
@@ -317,7 +405,9 @@ export class Features {
     }
 
     feature._doActivate = () => {
-      this.settings.connect(setting, onChange.bind(feature))
+      settings.forEach(setting => {
+        this.settings.connect(setting, onChange.bind(feature))
+      })
       onChange()
     }
 
@@ -384,33 +474,55 @@ class WidgetStyle {
 
 class GtkStyle {
   constructor(version, name, data) {
-    const content = this.parse(data, version)
-
-    this.filepath = userStylesPath(version)
-    this.contents = `/* UNITE ${name} */\n${content}\n/* ${name} UNITE */\n`
+    this.version = version
+    this.name = name
+    this.data = data
   }
 
-  get existing() {
-    return getFileContents(this.filepath)
+  get paths() {
+    return gtkStylesPaths(this.version)
   }
 
-  parse(data, ver) {
-    if (isFilePath(data)) {
-      const path = filePath(['styles', `gtk${ver}`, data])
-      return `@import url('${path}');`
+  parse() {
+    if (isFilePath(this.data)) {
+      const path = filePath(['styles', `gtk${this.version}`, this.data])
+      // Keep the rules self-contained. Ubuntu links Snap GTK configuration
+      // back to this file, but confined apps cannot follow an import into the
+      // extension's hidden user-data directory.
+      return getStylesheetContents(path)
     } else {
-      return data
+      return this.data
     }
   }
 
+  contents() {
+    const content = this.parse()
+    return `/* UNITE ${this.name} */\n${content}\n/* ${this.name} UNITE */\n`
+  }
+
+  withoutUniteStyle(filepath) {
+    const escaped = this.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const pattern = new RegExp(
+      `/\\* UNITE ${escaped} \\*/[\\s\\S]*?/\\* ${escaped} UNITE \\*/\\n`,
+      'g'
+    )
+
+    return getFileContents(filepath).replace(pattern, '')
+  }
+
   load() {
-    const style = this.contents + this.existing
-    setFileContents(this.filepath, style)
+    this.paths.forEach(filepath => {
+      const style = this.contents() + this.withoutUniteStyle(filepath)
+      setFileContents(filepath, style)
+    })
   }
 
   unload() {
-    const style = this.existing.replace(this.contents, '')
-    setFileContents(this.filepath, style)
+    this.paths.forEach(filepath => {
+      if (fileExists(filepath)) {
+        setFileContents(filepath, this.withoutUniteStyle(filepath))
+      }
+    })
   }
 }
 
